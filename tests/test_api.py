@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from liborg.api import create_app
-from liborg.scanner import Scanner
+from cratekeeper.api import create_app
+from cratekeeper.scanner import Scanner
 from tests.conftest import make_silence_mp3, tag_as_mik, tag_basic
 
 
@@ -19,7 +19,7 @@ def test_stats_and_tracks_flow(config, library):
     tag_basic(b, "Some Artist", "Some Song")
 
     client = make_client(config)
-    state = client.app.state.liborg
+    state = client.app.state.cratekeeper
     Scanner(config, state.db).scan()
 
     stats = client.get("/api/stats").json()
@@ -47,7 +47,7 @@ def test_track_detail_and_404(config, library):
     f = library / "one.mp3"
     make_silence_mp3(f)
     client = make_client(config)
-    Scanner(config, client.app.state.liborg.db).scan()
+    Scanner(config, client.app.state.cratekeeper.db).scan()
 
     track = client.get("/api/tracks/1").json()
     assert track["filename"] == "one.mp3"
@@ -63,7 +63,7 @@ def test_detail_includes_duplicates(config, library):
     shutil.copy(a, library / "one copy.mp3")
 
     client = make_client(config)
-    Scanner(config, client.app.state.liborg.db).scan()
+    Scanner(config, client.app.state.cratekeeper.db).scan()
 
     track = client.get("/api/tracks/1").json()
     assert len(track["exact_duplicates"]) == 1
@@ -77,7 +77,7 @@ def test_rekordbox_xml_export(config, library):
     tag_basic(f, "An Artist", "A <Song> & Co")
 
     client = make_client(config)
-    Scanner(config, client.app.state.liborg.db).scan()
+    Scanner(config, client.app.state.cratekeeper.db).scan()
 
     res = client.get("/api/export/rekordbox.xml")
     assert res.status_code == 200
@@ -100,4 +100,4 @@ def test_index_served(config):
     client = make_client(config)
     res = client.get("/")
     assert res.status_code == 200
-    assert "liborg" in res.text
+    assert "cratekeeper" in res.text

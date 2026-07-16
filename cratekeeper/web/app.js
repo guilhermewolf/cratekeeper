@@ -1,4 +1,4 @@
-/* liborg dashboard */
+/* cratekeeper dashboard */
 
 const state = {
   search: "",

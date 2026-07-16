@@ -27,7 +27,7 @@ from . import mik
 from .config import Config
 from .db import Database
 
-log = logging.getLogger("liborg.scanner")
+log = logging.getLogger("cratekeeper.scanner")
 
 PARTIAL_CHUNK = 65536
 

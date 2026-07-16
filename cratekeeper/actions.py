@@ -1,6 +1,6 @@
 """Outbound actions: hand tracks to Mixed In Key, export rekordbox XML.
 
-liborg never writes to the rekordbox database or to audio files itself.
+cratekeeper never writes to the rekordbox database or to audio files itself.
 Instead it uses each app's own intake path:
 
 - Mixed In Key analyzes anything opened with it (`open -a "Mixed In Key 10"`).
@@ -22,7 +22,7 @@ from xml.sax.saxutils import escape  # noqa: F401  (kept for callers)
 
 from .db import Database
 
-log = logging.getLogger("liborg.actions")
+log = logging.getLogger("cratekeeper.actions")
 
 OPEN_BATCH = 50  # files per `open` invocation; keeps argv comfortably small
 
@@ -55,7 +55,7 @@ def _location(path: str) -> str:
     return "file://localhost" + urllib.parse.quote(path)
 
 
-def rekordbox_xml(db: Database, playlist_name: str = "liborg — missing from rekordbox") -> bytes:
+def rekordbox_xml(db: Database, playlist_name: str = "cratekeeper — missing from rekordbox") -> bytes:
     """Build a rekordbox XML of every non-missing track not in the collection."""
     rows = db.conn.execute(
         """SELECT id, path, filename, title, artist, album, genre, bpm, key, size, duration
@@ -63,7 +63,7 @@ def rekordbox_xml(db: Database, playlist_name: str = "liborg — missing from re
     ).fetchall()
 
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="liborg", Version="0.1.0", Company="liborg")
+    ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version="0.1.0", Company="cratekeeper")
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(rows)))
     for r in rows:
         attrs = {

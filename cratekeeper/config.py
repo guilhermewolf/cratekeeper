@@ -1,6 +1,6 @@
 """Configuration loading.
 
-Config lives at ~/.config/liborg/config.toml (or $LIBORG_CONFIG).
+Config lives at ~/.config/cratekeeper/config.toml (or $CRATEKEEPER_CONFIG).
 A missing file is fine — every field has a sensible default, and the
 library path can be given on the command line the first time.
 """
@@ -19,8 +19,8 @@ else:  # pragma: no cover
 
 AUDIO_EXTENSIONS = {".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus"}
 
-DEFAULT_CONFIG_PATH = Path.home() / ".config" / "liborg" / "config.toml"
-DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "liborg"
+DEFAULT_CONFIG_PATH = Path.home() / ".config" / "cratekeeper" / "config.toml"
+DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "cratekeeper"
 
 
 @dataclass
@@ -41,7 +41,7 @@ class Config:
 
     @property
     def db_path(self) -> Path:
-        return self.data_dir / "liborg.db"
+        return self.data_dir / "cratekeeper.db"
 
     @property
     def log_dir(self) -> Path:
@@ -49,7 +49,7 @@ class Config:
 
 
 def config_path() -> Path:
-    return Path(os.environ.get("LIBORG_CONFIG", DEFAULT_CONFIG_PATH))
+    return Path(os.environ.get("CRATEKEEPER_CONFIG", DEFAULT_CONFIG_PATH))
 
 
 def load_config() -> Config:

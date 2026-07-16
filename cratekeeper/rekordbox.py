@@ -15,7 +15,7 @@ from pathlib import Path
 
 from .db import Database
 
-log = logging.getLogger("liborg.rekordbox")
+log = logging.getLogger("cratekeeper.rekordbox")
 
 
 def _rb_db_path() -> Path | None:

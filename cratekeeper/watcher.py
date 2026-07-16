@@ -20,7 +20,7 @@ from .config import Config
 from .db import Database
 from .scanner import Scanner
 
-log = logging.getLogger("liborg.watcher")
+log = logging.getLogger("cratekeeper.watcher")
 
 DEBOUNCE_SECONDS = 5.0
 
@@ -76,7 +76,7 @@ class LibraryWatcher:
         self._observer = Observer()
         self._observer.schedule(_Handler(self), str(self.config.library_path), recursive=True)
         self._observer.start()
-        threading.Thread(target=self._drain_loop, name="liborg-watcher", daemon=True).start()
+        threading.Thread(target=self._drain_loop, name="cratekeeper-watcher", daemon=True).start()
         log.info("watching %s", self.config.library_path)
 
     def stop(self) -> None:

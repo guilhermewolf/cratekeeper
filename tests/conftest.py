@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from liborg.config import Config
-from liborg.db import Database
+from cratekeeper.config import Config
+from cratekeeper.db import Database
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

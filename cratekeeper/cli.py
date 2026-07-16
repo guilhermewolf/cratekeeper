@@ -1,4 +1,4 @@
-"""Command-line interface: liborg <command>."""
+"""Command-line interface: cratekeeper <command>."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from pathlib import Path
 from . import __version__
 from .config import config_path, load_config, write_config
 
-LAUNCHD_LABEL = "com.liborg.server"
+LAUNCHD_LABEL = "com.cratekeeper.server"
 
 
 def _setup_logging(config) -> None:
@@ -21,7 +21,7 @@ def _setup_logging(config) -> None:
         format="%(asctime)s %(name)s %(levelname)s %(message)s",
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler(config.log_dir / "liborg.log"),
+            logging.FileHandler(config.log_dir / "cratekeeper.log"),
         ],
     )
 
@@ -34,7 +34,7 @@ def cmd_init(args) -> int:
     path = write_config(library)
     print(f"config written to {path}")
     print(f"library: {library}")
-    print("next: run `liborg scan` to index it, then `liborg serve`")
+    print("next: run `cratekeeper scan` to index it, then `cratekeeper serve`")
     return 0
 
 
@@ -47,7 +47,7 @@ def cmd_scan(args) -> int:
     _setup_logging(config)
     if not config.library_path.is_dir():
         print(f"error: library path {config.library_path} does not exist.", file=sys.stderr)
-        print("run: liborg init <path-to-your-music>", file=sys.stderr)
+        print("run: cratekeeper init <path-to-your-music>", file=sys.stderr)
         return 1
     db = Database(config.db_path)
     scanner = Scanner(config, db)
@@ -75,7 +75,7 @@ def cmd_serve(args) -> int:
     config = load_config()
     _setup_logging(config)
     app = create_app(config)
-    print(f"liborg {__version__} — http://{config.host}:{config.port}")
+    print(f"cratekeeper {__version__} — http://{config.host}:{config.port}")
     uvicorn.run(app, host=config.host, port=config.port, log_level="warning")
     return 0
 
@@ -91,7 +91,7 @@ def cmd_status(args) -> int:
             stats = json.load(resp)
     except OSError:
         print(f"server not reachable at {url}")
-        print("start it with: liborg serve   (or liborg install-service)")
+        print("start it with: cratekeeper serve   (or cratekeeper install-service)")
         return 1
     print(json.dumps(stats, indent=2))
     return 0
@@ -103,18 +103,18 @@ def _plist_path() -> Path:
 
 def cmd_install_service(args) -> int:
     config = load_config()
-    liborg_bin = Path(sys.argv[0]).resolve()
-    if liborg_bin.name != "liborg":
+    cratekeeper_bin = Path(sys.argv[0]).resolve()
+    if cratekeeper_bin.name != "cratekeeper":
         # invoked via python -m; fall back to the console script next to python
-        candidate = Path(sys.executable).parent / "liborg"
+        candidate = Path(sys.executable).parent / "cratekeeper"
         if candidate.exists():
-            liborg_bin = candidate
+            cratekeeper_bin = candidate
         else:
-            print("could not locate the liborg executable", file=sys.stderr)
+            print("could not locate the cratekeeper executable", file=sys.stderr)
             return 1
     plist = {
         "Label": LAUNCHD_LABEL,
-        "ProgramArguments": [str(liborg_bin), "serve"],
+        "ProgramArguments": [str(cratekeeper_bin), "serve"],
         "RunAtLoad": True,
         "KeepAlive": True,
         "StandardOutPath": str(config.log_dir / "launchd.out.log"),
@@ -148,10 +148,10 @@ def cmd_uninstall_service(args) -> int:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
-        prog="liborg",
+        prog="cratekeeper",
         description="Music library organizer: indexing, duplicates, Mixed In Key & rekordbox status.",
     )
-    parser.add_argument("--version", action="version", version=f"liborg {__version__}")
+    parser.add_argument("--version", action="version", version=f"cratekeeper {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("init", help="set the music library path")

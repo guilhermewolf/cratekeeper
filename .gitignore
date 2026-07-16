@@ -9,7 +9,7 @@ build/
 .pytest_cache/
 .ruff_cache/
 
-# liborg runtime data (never commit a user's library index)
+# cratekeeper runtime data (never commit a user's library index)
 *.db
 *.db-wal
 *.db-shm

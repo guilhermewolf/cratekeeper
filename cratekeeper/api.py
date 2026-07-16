@@ -18,7 +18,7 @@ from .rekordbox import RekordboxSync
 from .scanner import Scanner
 from .watcher import LibraryWatcher
 
-log = logging.getLogger("liborg.api")
+log = logging.getLogger("cratekeeper.api")
 
 SORTABLE = {
     "filename", "artist", "title", "album", "genre", "bpm", "key", "energy",
@@ -50,7 +50,7 @@ class AppState:
             finally:
                 self._scan_lock.release()
 
-        threading.Thread(target=run, name="liborg-scan", daemon=True).start()
+        threading.Thread(target=run, name="cratekeeper-scan", daemon=True).start()
         return True
 
     def start_background(self) -> None:
@@ -70,7 +70,7 @@ class AppState:
                     log.exception("rekordbox poll failed")
                 time.sleep(self.config.rekordbox_poll_interval)
 
-        threading.Thread(target=loop, name="liborg-periodic", daemon=True).start()
+        threading.Thread(target=loop, name="cratekeeper-periodic", daemon=True).start()
 
 
 def create_app(config: Config | None = None, background: bool = True) -> FastAPI:
@@ -86,8 +86,8 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             state.start_background()
         yield
 
-    app = FastAPI(title="liborg", version=__version__, lifespan=lifespan)
-    app.state.liborg = state
+    app = FastAPI(title="cratekeeper", version=__version__, lifespan=lifespan)
+    app.state.cratekeeper = state
 
     # ---- stats -----------------------------------------------------------
 
@@ -298,7 +298,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         return Response(
             content=xml,
             media_type="application/xml",
-            headers={"Content-Disposition": 'attachment; filename="liborg-rekordbox.xml"'},
+            headers={"Content-Disposition": 'attachment; filename="cratekeeper-rekordbox.xml"'},
         )
 
     # ---- frontend --------------------------------------------------------------

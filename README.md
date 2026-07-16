@@ -1,6 +1,6 @@
-# 🎧 liborg
+# 🎧 cratekeeper
 
-**A 24/7 music library organizer for DJs.** liborg indexes your music folder, finds
+**A 24/7 music library organizer for DJs.** cratekeeper indexes your music folder, finds
 duplicate files, and answers the two questions every rekordbox + Mixed In Key user
 keeps asking:
 
@@ -10,7 +10,7 @@ keeps asking:
 Everything shows up in a local web dashboard where you can filter your entire
 library by Mixed In Key status, rekordbox status, and duplicates.
 
-![dashboard](docs/screenshot.jpg)
+![dashboard](docs/screenshot.png)
 
 ## Features
 
@@ -19,7 +19,7 @@ library by Mixed In Key status, rekordbox status, and duplicates.
   wav, aiff, m4a, ogg, opus. Rescans are incremental: unchanged files are skipped.
 - **Mixed In Key detection** — MIK leaves a cryptographic-grade fingerprint in the
   files it analyzes (`GEOB:Key`/`GEOB:Energy` ID3 frames or base64 vorbis comments
-  with `"source": "mixedinkey"`). liborg reports:
+  with `"source": "mixedinkey"`). cratekeeper reports:
   - `confirmed` — MIK signature found in the tags
   - `likely` — Camelot key + energy level present, but no MIK signature (analyzed
     by an old MIK version, or the frames were stripped by another tag editor)
@@ -38,15 +38,15 @@ library by Mixed In Key status, rekordbox status, and duplicates.
 - **Track detail view** — click any row for full metadata, the file's path, and
   the paths of every duplicate of it (with copy buttons).
 - **Send to Mixed In Key** — one click opens the not-yet-analyzed tracks in MIK,
-  which analyzes them and writes its tags; liborg's watcher notices and flips
+  which analyzes them and writes its tags; cratekeeper's watcher notices and flips
   them to *confirmed* automatically.
 - **rekordbox import bridge** — one click downloads a rekordbox XML containing
   every track missing from your collection, as a ready-made playlist. Point
   rekordbox at it (Preferences → Advanced → Database → rekordbox xml) and import.
-  liborg never writes to the rekordbox database itself.
+  cratekeeper never writes to the rekordbox database itself.
 - **Runs 24/7** — a filesystem watcher picks up new files the moment Syncthing
   (or you) drops them, plus a periodic full rescan and rekordbox re-sync.
-  `liborg install-service` registers it with launchd so it starts at login and
+  `cratekeeper install-service` registers it with launchd so it starts at login and
   restarts on crash.
 - **Local-first** — everything stays on your machine. SQLite database, no cloud,
   no telemetry. The rekordbox database is only ever opened read-only.
@@ -60,37 +60,37 @@ Requires macOS + Python 3.10+ ([uv](https://docs.astral.sh/uv/) recommended)
 and rekordbox 6 or 7 if you want the rekordbox integration.
 
 ```bash
-git clone https://github.com/YOURUSER/liborg && cd liborg
+git clone https://github.com/guilhermewolf/cratekeeper && cd cratekeeper
 uv venv && uv pip install -e .
 
-# point liborg at your music folder
-.venv/bin/liborg init ~/Documents/Musics
+# point cratekeeper at your music folder
+.venv/bin/cratekeeper init ~/Documents/Musics
 
 # index it (first run takes a few minutes for large libraries)
-.venv/bin/liborg scan
+.venv/bin/cratekeeper scan
 
 # start the dashboard
-.venv/bin/liborg serve
+.venv/bin/cratekeeper serve
 # → http://127.0.0.1:8321
 ```
 
 ### Run 24/7 (macOS)
 
 ```bash
-.venv/bin/liborg install-service
+.venv/bin/cratekeeper install-service
 ```
 
-This writes `~/Library/LaunchAgents/com.liborg.server.plist` and starts the
+This writes `~/Library/LaunchAgents/com.cratekeeper.server.plist` and starts the
 server. It launches at login, restarts if it crashes, and keeps watching your
-library in the background. Remove with `liborg uninstall-service`.
+library in the background. Remove with `cratekeeper uninstall-service`.
 
 ## Configuration
 
-`liborg init <path>` writes `~/.config/liborg/config.toml`. All options:
+`cratekeeper init <path>` writes `~/.config/cratekeeper/config.toml`. All options:
 
 ```toml
 library_path = "/Users/you/Documents/Musics"
-# data_dir = "~/.local/share/liborg"     # database + logs
+# data_dir = "~/.local/share/cratekeeper"     # database + logs
 # host = "127.0.0.1"
 # port = 8321
 # rescan_interval = 21600                # full rescan every 6 h
@@ -122,12 +122,12 @@ The dashboard is a thin client over a JSON API (interactive docs at `/docs`):
 **Mixed In Key**: MIK writes its analysis into the audio file itself. On MP3/AIFF
 it adds `GEOB` frames named `Key` and `Energy` containing JSON like
 `{"algorithm": 94, "key": "9A", "source": "mixedinkey"}`; on FLAC it writes the
-same JSON base64-encoded into `key`/`energy` vorbis comments. liborg parses these
+same JSON base64-encoded into `key`/`energy` vorbis comments. cratekeeper parses these
 for a definitive answer instead of guessing from the comment field.
 
 **rekordbox**: rekordbox 6/7 stores its collection in an SQLCipher-encrypted
 SQLite database (`~/Library/Pioneer/rekordbox/master.db`). pyrekordbox decrypts
-it read-only. liborg mirrors the collection, matches it against your files, and
+it read-only. cratekeeper mirrors the collection, matches it against your files, and
 reads rekordbox's own `Analysed` flag to tell you which imported tracks still
 need waveform/grid analysis.
 

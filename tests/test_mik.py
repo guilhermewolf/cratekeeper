@@ -4,7 +4,7 @@ import json
 import mutagen
 import pytest
 
-from liborg import mik
+from cratekeeper import mik
 from tests.conftest import make_silence_mp3, tag_as_mik
 
 

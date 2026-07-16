@@ -1,4 +1,4 @@
-# liborg — agent notes
+# cratekeeper — agent notes
 
 24/7 music library organizer for DJs: indexes a music folder, finds duplicates,
 and reports Mixed In Key + rekordbox status per track. Python 3.10+, FastAPI,
@@ -10,30 +10,30 @@ SQLite, no frontend build step.
 uv venv && uv pip install -e ".[dev]"   # setup
 pytest                                   # tests (no music files or rekordbox needed)
 ruff check .                             # lint
-.venv/bin/liborg scan                    # one-shot index of the configured library
-.venv/bin/liborg serve                   # dashboard at http://127.0.0.1:8321
+.venv/bin/cratekeeper scan                    # one-shot index of the configured library
+.venv/bin/cratekeeper serve                   # dashboard at http://127.0.0.1:8321
 ```
 
-Config lives at `~/.config/liborg/config.toml` (`liborg init <path>` writes it);
-data at `~/.local/share/liborg/liborg.db`. Tests must never touch either — use
+Config lives at `~/.config/cratekeeper/config.toml` (`cratekeeper init <path>` writes it);
+data at `~/.local/share/cratekeeper/cratekeeper.db`. Tests must never touch either — use
 tmp_path fixtures.
 
 ## Architecture
 
 ```
-liborg/config.py     TOML config, defaults, audio extension list
-liborg/db.py         SQLite schema + per-thread connections (WAL mode)
-liborg/scanner.py    library walk, tag extraction (mutagen), 2-tier hashing,
+cratekeeper/config.py     TOML config, defaults, audio extension list
+cratekeeper/db.py         SQLite schema + per-thread connections (WAL mode)
+cratekeeper/scanner.py    library walk, tag extraction (mutagen), 2-tier hashing,
                      duplicate grouping (exact + normalized artist/title)
-liborg/mik.py        Mixed In Key detection — pure function over mutagen tags
-liborg/rekordbox.py  reads rekordbox master.db via pyrekordbox (READ-ONLY),
+cratekeeper/mik.py        Mixed In Key detection — pure function over mutagen tags
+cratekeeper/rekordbox.py  reads rekordbox master.db via pyrekordbox (READ-ONLY),
                      mirrors collection, links tracks by path then name+size
-liborg/watcher.py    watchdog observer, debounced incremental updates
-liborg/actions.py    outbound actions: `open -a` handoff to Mixed In Key,
+cratekeeper/watcher.py    watchdog observer, debounced incremental updates
+cratekeeper/actions.py    outbound actions: `open -a` handoff to Mixed In Key,
                      rekordbox XML export (the only rekordbox "write" path)
-liborg/api.py        FastAPI app: JSON API + serves liborg/web/ static frontend
-liborg/cli.py        argparse CLI: init/scan/serve/status/install-service
-liborg/web/          vanilla HTML/CSS/JS dashboard (no build step — keep it that way)
+cratekeeper/api.py        FastAPI app: JSON API + serves cratekeeper/web/ static frontend
+cratekeeper/cli.py        argparse CLI: init/scan/serve/status/install-service
+cratekeeper/web/          vanilla HTML/CSS/JS dashboard (no build step — keep it that way)
 ```
 
 Data flow: scanner/watcher write `tracks`; rekordbox sync rewrites

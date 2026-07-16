@@ -1,6 +1,6 @@
 import shutil
 
-from liborg.scanner import Scanner, normalize_meta
+from cratekeeper.scanner import Scanner, normalize_meta
 from tests.conftest import make_silence_mp3, tag_as_mik, tag_basic
 
 

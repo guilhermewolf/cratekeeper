@@ -1,11 +1,11 @@
-# liborg configuration — copy to ~/.config/liborg/config.toml
-# (or run `liborg init <path>` to generate a minimal one)
+# cratekeeper configuration — copy to ~/.config/cratekeeper/config.toml
+# (or run `cratekeeper init <path>` to generate a minimal one)
 
 # Where your music lives. The only required setting.
 library_path = "/Users/you/Documents/Musics"
 
-# Where liborg keeps its database and logs.
-#data_dir = "~/.local/share/liborg"
+# Where cratekeeper keeps its database and logs.
+#data_dir = "~/.local/share/cratekeeper"
 
 # Dashboard address.
 #host = "127.0.0.1"
