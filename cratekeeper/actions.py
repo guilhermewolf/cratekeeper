@@ -18,7 +18,6 @@ import subprocess
 import urllib.parse
 from pathlib import Path
 from xml.etree import ElementTree as ET
-from xml.sax.saxutils import escape  # noqa: F401  (kept for callers)
 
 from .db import Database
 

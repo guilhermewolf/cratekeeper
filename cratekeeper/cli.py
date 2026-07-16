@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from . import __version__
-from .config import config_path, load_config, write_config
+from .config import load_config, write_config
 
 LAUNCHD_LABEL = "com.cratekeeper.server"
 
