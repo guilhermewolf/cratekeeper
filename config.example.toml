@@ -1,0 +1,26 @@
+# liborg configuration — copy to ~/.config/liborg/config.toml
+# (or run `liborg init <path>` to generate a minimal one)
+
+# Where your music lives. The only required setting.
+library_path = "/Users/you/Documents/Musics"
+
+# Where liborg keeps its database and logs.
+#data_dir = "~/.local/share/liborg"
+
+# Dashboard address.
+#host = "127.0.0.1"
+#port = 8321
+
+# Full library rescan interval in seconds while serving (the filesystem
+# watcher handles changes in between; this is a safety net).
+#rescan_interval = 21600
+
+# How often to check the rekordbox database for changes, in seconds.
+# Cheap: skipped unless the file's mtime changed.
+#rekordbox_poll_interval = 300
+
+# Audio file extensions to index.
+#extensions = [".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus"]
+
+# Directory names skipped during scans (defaults cover Syncthing internals).
+#ignore_dirs = [".stfolder", ".stversions", ".sync"]

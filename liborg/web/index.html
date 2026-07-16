@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>liborg — music library dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎧</text></svg>">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">🎧</span>
+    <h1>liborg</h1>
+    <span class="library-path" id="library-path"></span>
+  </div>
+  <div class="topbar-actions">
+    <span id="scan-indicator" class="scan-indicator" hidden>
+      <span class="pulse"></span><span id="scan-indicator-text">scanning…</span>
+    </span>
+    <button id="btn-mik" class="btn" hidden title="Open unanalyzed tracks in Mixed In Key (first 100)"></button>
+    <a id="btn-rbxml" class="btn" href="/api/export/rekordbox.xml" hidden
+       title="Download an XML of tracks missing from rekordbox — import it via rekordbox Preferences → Advanced → Database → rekordbox xml"></a>
+    <button id="btn-rescan" class="btn">Rescan library</button>
+  </div>
+</header>
+
+<main>
+  <section class="tiles" id="tiles">
+    <div class="tile">
+      <div class="tile-label">Tracks</div>
+      <div class="tile-value" id="stat-total">–</div>
+      <div class="tile-sub" id="stat-total-sub"></div>
+    </div>
+    <div class="tile tile-clickable" data-filter="mik">
+      <div class="tile-label">Mixed In Key</div>
+      <div class="tile-value" id="stat-mik">–</div>
+      <div class="proportion" id="mik-bar" aria-hidden="true"></div>
+      <div class="tile-sub" id="stat-mik-sub"></div>
+    </div>
+    <div class="tile tile-clickable" data-filter="rekordbox">
+      <div class="tile-label">In rekordbox</div>
+      <div class="tile-value" id="stat-rb">–</div>
+      <div class="proportion" id="rb-bar" aria-hidden="true"></div>
+      <div class="tile-sub" id="stat-rb-sub"></div>
+    </div>
+    <div class="tile tile-clickable" data-filter="dupes">
+      <div class="tile-label">Exact duplicates</div>
+      <div class="tile-value" id="stat-dupes">–</div>
+      <div class="tile-sub" id="stat-dupes-sub"></div>
+    </div>
+    <div class="tile">
+      <div class="tile-label">Needs attention</div>
+      <div class="tile-value" id="stat-attention">–</div>
+      <div class="tile-sub" id="stat-attention-sub"></div>
+    </div>
+  </section>
+
+  <section class="filters">
+    <input type="search" id="search" placeholder="Search artist, title, album, filename…" autocomplete="off">
+    <div class="chip-group" role="group" aria-label="Mixed In Key filter">
+      <span class="chip-group-label">MIK</span>
+      <button class="chip active" data-group="mik" data-value="">All</button>
+      <button class="chip" data-group="mik" data-value="analyzed">Analyzed</button>
+      <button class="chip" data-group="mik" data-value="confirmed">Confirmed</button>
+      <button class="chip" data-group="mik" data-value="likely">Likely</button>
+      <button class="chip" data-group="mik" data-value="none">Not analyzed</button>
+    </div>
+    <div class="chip-group" role="group" aria-label="rekordbox filter">
+      <span class="chip-group-label">rekordbox</span>
+      <button class="chip active" data-group="rekordbox" data-value="">All</button>
+      <button class="chip" data-group="rekordbox" data-value="in">Imported</button>
+      <button class="chip" data-group="rekordbox" data-value="out">Missing</button>
+      <button class="chip" data-group="rekordbox" data-value="unanalyzed">Not analyzed</button>
+    </div>
+    <div class="chip-group" role="group" aria-label="duplicates filter">
+      <span class="chip-group-label">Dupes</span>
+      <button class="chip active" data-group="dupes" data-value="">All</button>
+      <button class="chip" data-group="dupes" data-value="exact">Exact</button>
+      <button class="chip" data-group="dupes" data-value="meta">Same song</button>
+    </div>
+  </section>
+
+  <section class="table-wrap">
+    <table id="tracks-table">
+      <thead>
+        <tr>
+          <th data-sort="artist">Artist</th>
+          <th data-sort="title">Title</th>
+          <th data-sort="key" class="num">Key</th>
+          <th data-sort="energy" class="num">Energy</th>
+          <th data-sort="bpm" class="num">BPM</th>
+          <th data-sort="mik_status">Mixed In Key</th>
+          <th>rekordbox</th>
+          <th data-sort="ext">Format</th>
+          <th data-sort="size" class="num">Size</th>
+        </tr>
+      </thead>
+      <tbody id="tracks-body"></tbody>
+    </table>
+    <div class="table-footer">
+      <span id="result-count"></span>
+      <div class="pager">
+        <button id="prev" class="btn btn-small">‹ Prev</button>
+        <span id="page-label"></span>
+        <button id="next" class="btn btn-small">Next ›</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="detail-overlay" class="overlay" hidden>
+  <div class="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+    <div class="detail-head">
+      <h2 id="detail-title"></h2>
+      <button id="detail-close" class="btn btn-small" aria-label="Close">✕</button>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<footer class="pagefoot">
+  <span id="footer-sync"></span>
+  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+</footer>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
