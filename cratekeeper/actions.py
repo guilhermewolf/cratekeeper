@@ -19,6 +19,7 @@ import urllib.parse
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
+from . import __version__
 from .db import Database
 
 log = logging.getLogger("cratekeeper.actions")
@@ -62,7 +63,7 @@ def rekordbox_xml(db: Database, playlist_name: str = "cratekeeper — missing fr
     ).fetchall()
 
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
-    ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version="0.1.0", Company="cratekeeper")
+    ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version=__version__, Company="cratekeeper")
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(rows)))
     for r in rows:
         attrs = {

@@ -26,7 +26,7 @@ def library(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def config(tmp_path: Path, library: Path) -> Config:
-    cfg = Config(library_path=library, data_dir=tmp_path / "data")
+    cfg = Config(library_path=library, data_dir=tmp_path / "data", configured=True)
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.log_dir.mkdir(parents=True, exist_ok=True)
     return cfg

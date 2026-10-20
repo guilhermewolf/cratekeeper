@@ -33,8 +33,17 @@ class _Handler(FileSystemEventHandler):
         p = Path(path)
         if p.suffix.lower() not in self.watcher.config.extensions:
             return False
-        parts = set(p.parts)
-        return not (parts & self.watcher.config.ignore_dirs)
+        # Mirror Scanner.iter_library: skip ignore_dirs and any dot-directory
+        # *below the library root* (otherwise the watcher indexes files the
+        # full scan then marks missing). The root itself may live anywhere.
+        try:
+            rel_parts = p.relative_to(self.watcher.config.library_path).parts[:-1]
+        except ValueError:
+            rel_parts = p.parts[:-1]
+        for part in rel_parts:
+            if part in self.watcher.config.ignore_dirs or part.startswith("."):
+                return False
+        return True
 
     def on_created(self, event):
         if not event.is_directory and self._relevant(event.src_path):

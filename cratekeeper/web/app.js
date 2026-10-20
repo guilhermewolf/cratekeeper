@@ -13,6 +13,13 @@ const state = {
 
 const $ = (sel) => document.querySelector(sel);
 
+/* ---- desktop bridge (present only inside cratekeeper.app) ---- */
+
+const desktop = () => (window.pywebview && window.pywebview.api) || null;
+window.addEventListener("pywebviewready", () => {
+  document.body.classList.add("desktop");
+});
+
 function fmtBytes(n) {
   if (n == null) return "";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -41,6 +48,7 @@ async function loadStats() {
   const s = await res.json();
 
   $("#library-path").textContent = s.library_path;
+  renderSetup(s);
   $("#stat-total").textContent = fmtNum(s.total);
   $("#stat-total-sub").textContent =
     s.missing ? `${fmtNum(s.missing)} file(s) missing from disk` : "all files present";
@@ -119,6 +127,75 @@ function relTime(ts) {
   if (secs < 86400) return `${Math.round(secs / 3600)} h ago`;
   return `${Math.round(secs / 86400)} d ago`;
 }
+
+/* ---- library folder setup ---- */
+
+let setupForced = false;  // user clicked the path to change it
+
+function renderSetup(s) {
+  const box = $("#setup");
+  const needs = !s.configured || !s.library_exists;
+  box.hidden = !(needs || setupForced);
+  $("#btn-setup-cancel").hidden = needs;
+  if (!s.configured) {
+    $("#setup-title").textContent = "Where is your music?";
+    $("#setup-sub").textContent =
+      "Pick the folder cratekeeper should index. It only reads your files — nothing is moved or rewritten.";
+  } else if (!s.library_exists) {
+    $("#setup-title").textContent = "Music folder not found";
+    $("#setup-sub").textContent =
+      `${s.library_path} is missing (unmounted drive?). Reconnect it, or pick another folder.`;
+  } else {
+    $("#setup-title").textContent = "Change music folder";
+    $("#setup-sub").textContent = `Currently indexing ${s.library_path}.`;
+  }
+  if (!$("#setup-path").value && s.configured) $("#setup-path").value = s.library_path;
+}
+
+async function setLibrary(path) {
+  const err = $("#setup-error");
+  err.hidden = true;
+  const res = await fetch("/api/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ library_path: path }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    err.textContent = body.detail ?? `Could not use that folder (${res.status})`;
+    err.hidden = false;
+    return false;
+  }
+  setupForced = false;
+  $("#setup").hidden = true;
+  await loadStats();
+  loadTracks();
+  return true;
+}
+
+async function chooseFolderNative() {
+  const api = desktop();
+  if (!api) return;
+  const path = await api.choose_library();
+  if (path) await setLibrary(path);
+}
+
+$("#btn-choose-folder").addEventListener("click", chooseFolderNative);
+$("#setup-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const path = $("#setup-path").value.trim();
+  if (path) setLibrary(path);
+});
+$("#btn-setup-cancel").addEventListener("click", () => {
+  setupForced = false;
+  $("#setup").hidden = true;
+});
+$("#library-path").addEventListener("click", () => {
+  if (desktop()) { chooseFolderNative(); return; }
+  setupForced = true;
+  loadStats();
+  $("#setup-path").focus();
+});
 
 /* ---- tracks table ---- */
 
@@ -210,6 +287,7 @@ function pathRow(t, current = false) {
     <code>${esc(t.path)}</code>
     <span class="path-meta">${meta}</span>
     <button class="btn btn-small copy-btn" data-path="${esc(t.path)}">Copy</button>
+    <button class="btn btn-small reveal-btn desktop-only" data-path="${esc(t.path)}">Reveal</button>
   </div>`;
 }
 
@@ -264,6 +342,9 @@ async function openDetail(id) {
       btn.textContent = "Copied";
       setTimeout(() => { btn.textContent = "Copy"; }, 1500);
     });
+  });
+  document.querySelectorAll(".reveal-btn").forEach((btn) => {
+    btn.addEventListener("click", () => desktop()?.reveal(btn.dataset.path));
   });
 }
 
@@ -341,6 +422,22 @@ $("#btn-mik").addEventListener("click", async () => {
       : `MIK error: ${data.error}`;
   } finally {
     setTimeout(() => { btn.disabled = false; loadStats(); }, 4000);
+  }
+});
+
+$("#btn-rbxml").addEventListener("click", async (e) => {
+  const api = desktop();
+  if (!api) return;  // browser: plain download link
+  e.preventDefault();
+  const btn = $("#btn-rbxml");
+  const label = btn.textContent;
+  const result = await api.save_rekordbox_xml();
+  if (result.ok) {
+    btn.textContent = "Saved ✓";
+    setTimeout(() => { btn.textContent = label; }, 2500);
+  } else if (!result.cancelled) {
+    btn.textContent = `Export failed: ${result.error}`;
+    setTimeout(() => { btn.textContent = label; }, 4000);
   }
 });
 

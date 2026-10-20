@@ -7,7 +7,7 @@ from tests.conftest import make_silence_mp3, tag_as_mik, tag_basic
 
 def make_client(config) -> TestClient:
     app = create_app(config, background=False)
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def test_stats_and_tracks_flow(config, library):

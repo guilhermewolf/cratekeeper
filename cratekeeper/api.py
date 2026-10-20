@@ -7,12 +7,15 @@ import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from urllib.parse import urlparse
+
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from . import __version__
-from .config import Config, load_config
+from .config import Config, config_path, load_config, write_config
 from .db import Database
 from .rekordbox import RekordboxSync
 from .scanner import Scanner
@@ -26,6 +29,33 @@ SORTABLE = {
 }
 
 
+class ConfigUpdate(BaseModel):
+    library_path: str
+
+
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
+
+
+def _host_only(value: str) -> str:
+    value = value.strip().lower()
+    if value.startswith("["):  # [::1]:port
+        return value.split("]")[0] + "]"
+    return value.rsplit(":", 1)[0] if value.count(":") == 1 else value
+
+
+def _local_host(host_header: str | None, config: Config) -> bool:
+    if not host_header:
+        return True  # HTTP/1.0 clients; curl always sends one
+    return _host_only(host_header) in LOCAL_HOSTS | {config.host.lower()}
+
+
+def _local_origin(origin: str, config: Config) -> bool:
+    if origin == "null":
+        return False
+    parsed = urlparse(origin)
+    return parsed.scheme in ("http", "https") and _local_host(parsed.netloc, config)
+
+
 class AppState:
     def __init__(self, config: Config):
         self.config = config
@@ -34,16 +64,30 @@ class AppState:
         self.rekordbox = RekordboxSync(self.db)
         self.watcher = LibraryWatcher(config, self.db)
         self._scan_lock = threading.Lock()
+        self._state_lock = threading.Lock()  # guards watcher swaps / library changes
+        self._watching = False
+        self._rescan_pending = False
+
+    @property
+    def library_ready(self) -> bool:
+        return self.config.configured and self.config.library_path.is_dir()
 
     def scan_async(self) -> bool:
-        """Kick off a scan unless one is already running."""
+        """Kick off a scan unless one is already running (or no library yet)."""
+        if not self.config.library_path.is_dir():
+            return False
         if not self._scan_lock.acquire(blocking=False):
             return False
 
         def run():
             try:
-                self.scanner.scan()
-                self.rekordbox.sync(force=True)
+                while True:
+                    self._rescan_pending = False
+                    self.scanner.scan()
+                    self.rekordbox.sync(force=True)
+                    # a library change during the scan asks for one more pass
+                    if not self._rescan_pending:
+                        break
             except Exception:
                 log.exception("background scan failed")
                 self.scanner.progress.state = "idle"
@@ -53,15 +97,27 @@ class AppState:
         threading.Thread(target=run, name="cratekeeper-scan", daemon=True).start()
         return True
 
+    def start_watching(self) -> None:
+        """(Re)start the filesystem watcher on the current library path."""
+        with self._state_lock:
+            if self._watching:
+                self.watcher.stop()
+                self._watching = False
+            if not self.library_ready:
+                return
+            self.watcher = LibraryWatcher(self.config, self.db)
+            self.watcher.start()
+            self._watching = True
+
     def start_background(self) -> None:
         """Watcher + periodic full rescan + rekordbox polling."""
-        self.watcher.start()
+        self.start_watching()
 
         def loop():
             last_full = 0.0
             while True:
                 now = time.time()
-                if now - last_full >= self.config.rescan_interval:
+                if self.library_ready and now - last_full >= self.config.rescan_interval:
                     last_full = now
                     self.scan_async()
                 try:
@@ -71,6 +127,22 @@ class AppState:
                 time.sleep(self.config.rekordbox_poll_interval)
 
         threading.Thread(target=loop, name="cratekeeper-periodic", daemon=True).start()
+
+    def set_library(self, path: Path) -> None:
+        """Point cratekeeper at a (new) music folder: persist it, re-aim the
+        watcher and kick off a scan. Raises ValueError for a non-directory."""
+        path = path.expanduser().resolve()
+        if not path.is_dir():
+            raise ValueError(f"{path} is not a directory")
+        with self._state_lock:
+            write_config(path)
+            self.config.library_path = path
+            self.config.configured = True
+            log.info("library set to %s", path)
+        self.start_watching()
+        # If a scan is mid-flight it will run once more with the new path.
+        self._rescan_pending = True
+        self.scan_async()
 
 
 def create_app(config: Config | None = None, background: bool = True) -> FastAPI:
@@ -82,12 +154,59 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         if background:
-            state.scan_async()
+            if state.library_ready:
+                state.scan_async()
+            else:
+                log.info("no library configured yet — waiting for one via the dashboard")
             state.start_background()
         yield
 
     app = FastAPI(title="cratekeeper", version=__version__, lifespan=lifespan)
     app.state.cratekeeper = state
+
+    @app.middleware("http")
+    async def local_only(request: Request, call_next):
+        """The server is loopback-only, but a web page can still reach it via
+        DNS rebinding or plain cross-site requests. Only accept requests whose
+        Host is one of ours and whose Origin (if any) is too."""
+        if not _local_host(request.headers.get("host"), config):
+            return JSONResponse({"detail": "bad host header"}, status_code=421)
+        origin = request.headers.get("origin")
+        if origin and not _local_origin(origin, config):
+            return JSONResponse({"detail": "cross-origin request rejected"}, status_code=403)
+        return await call_next(request)
+
+    # ---- health / config ---------------------------------------------------
+
+    @app.get("/api/health")
+    def health():
+        """Tiny identity endpoint; the desktop app uses it to recognise a
+        server that is already running on the configured port."""
+        return {"app": "cratekeeper", "version": __version__}
+
+    def config_payload() -> dict:
+        return {
+            "version": __version__,
+            "configured": config.configured,
+            "library_path": str(config.library_path),
+            "library_exists": config.library_path.is_dir(),
+            "data_dir": str(config.data_dir),
+            "config_path": str(config_path()),
+            "host": config.host,
+            "port": config.port,
+        }
+
+    @app.get("/api/config")
+    def get_config():
+        return config_payload()
+
+    @app.put("/api/config")
+    def put_config(body: ConfigUpdate):
+        try:
+            state.set_library(Path(body.library_path))
+        except ValueError as exc:
+            raise HTTPException(400, str(exc))
+        return config_payload()
 
     # ---- stats -----------------------------------------------------------
 
@@ -99,7 +218,9 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         total = one("SELECT COUNT(*) FROM tracks WHERE missing = 0")
         return {
             "version": __version__,
+            "configured": config.configured,
             "library_path": str(config.library_path),
+            "library_exists": config.library_path.is_dir(),
             "total": total,
             "missing": one("SELECT COUNT(*) FROM tracks WHERE missing = 1"),
             "mik": {
@@ -261,6 +382,8 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
 
     @app.post("/api/scan")
     def trigger_scan():
+        if not config.library_path.is_dir():
+            raise HTTPException(409, f"library folder not found: {config.library_path}")
         started = state.scan_async()
         return {"started": started, "progress": state.scanner.progress.as_dict()}
 

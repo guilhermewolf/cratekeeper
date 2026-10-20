@@ -41,7 +41,12 @@ main { max-width: 1280px; margin: 0 auto; padding: 0 20px 40px; }
 .brand { display: flex; align-items: baseline; gap: 10px; }
 .brand-mark { font-size: 18px; }
 .brand h1 { font-size: 17px; margin: 0; letter-spacing: 0.02em; }
-.library-path { color: var(--text-muted); font-size: 12px; }
+.library-path {
+  color: var(--text-muted); font-size: 12px; background: none; border: none;
+  padding: 0; font-family: inherit; cursor: pointer; text-align: left;
+  max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.library-path:hover { color: var(--text-primary); text-decoration: underline; }
 .topbar-actions { display: flex; align-items: center; gap: 14px; }
 
 .scan-indicator { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: 13px; }
@@ -61,6 +66,26 @@ main { max-width: 1280px; margin: 0 auto; padding: 0 20px 40px; }
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn-small { padding: 4px 10px; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { filter: brightness(1.1); }
+
+/* ---- first-run setup ---- */
+.setup {
+  margin: 24px 0 8px; padding: 20px 22px;
+  background: var(--surface-1); border: 1px solid var(--accent); border-radius: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px 24px;
+}
+.setup h2 { margin: 0 0 4px; font-size: 17px; }
+.setup p { margin: 0; color: var(--text-secondary); font-size: 13px; max-width: 560px; }
+.setup-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#setup-path {
+  background: var(--page); border: 1px solid var(--hairline); border-radius: 6px;
+  color: var(--text-primary); font: inherit; padding: 7px 12px; width: 340px;
+}
+#setup-path:focus { outline: none; border-color: var(--accent); }
+.setup-error { flex-basis: 100%; color: var(--status-critical) !important; }
+body.desktop .browser-only { display: none !important; }
+body:not(.desktop) .desktop-only { display: none !important; }
 
 /* ---- stat tiles ---- */
 .tiles {

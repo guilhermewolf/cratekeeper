@@ -76,8 +76,17 @@ def cmd_serve(args) -> int:
     _setup_logging(config)
     app = create_app(config)
     print(f"cratekeeper {__version__} — http://{config.host}:{config.port}")
+    if not config.configured:
+        print("no library configured yet — pick one in the dashboard, or run: cratekeeper init <path>")
     uvicorn.run(app, host=config.host, port=config.port, log_level="warning")
     return 0
+
+
+def cmd_app(args) -> int:
+    """Desktop window (macOS). Same server, native WKWebView around it."""
+    from .app import main as app_main
+
+    return app_main()
 
 
 def cmd_status(args) -> int:
@@ -103,15 +112,19 @@ def _plist_path() -> Path:
 
 def cmd_install_service(args) -> int:
     config = load_config()
-    cratekeeper_bin = Path(sys.argv[0]).resolve()
-    if cratekeeper_bin.name != "cratekeeper":
-        # invoked via python -m; fall back to the console script next to python
-        candidate = Path(sys.executable).parent / "cratekeeper"
-        if candidate.exists():
-            cratekeeper_bin = candidate
-        else:
-            print("could not locate the cratekeeper executable", file=sys.stderr)
-            return 1
+    if getattr(sys, "frozen", False):
+        # Inside cratekeeper.app: the bundle's executable doubles as the CLI.
+        cratekeeper_bin = Path(sys.executable).resolve()
+    else:
+        cratekeeper_bin = Path(sys.argv[0]).resolve()
+        if cratekeeper_bin.name != "cratekeeper":
+            # invoked via python -m; fall back to the console script next to python
+            candidate = Path(sys.executable).parent / "cratekeeper"
+            if candidate.exists():
+                cratekeeper_bin = candidate
+            else:
+                print("could not locate the cratekeeper executable", file=sys.stderr)
+                return 1
     plist = {
         "Label": LAUNCHD_LABEL,
         "ProgramArguments": [str(cratekeeper_bin), "serve"],
@@ -163,6 +176,9 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("serve", help="run the web dashboard + background watcher")
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("app", help="open the desktop window (macOS)")
+    p.set_defaults(func=cmd_app)
 
     p = sub.add_parser("status", help="print stats from the running server")
     p.set_defaults(func=cmd_status)

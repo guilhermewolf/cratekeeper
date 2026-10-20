@@ -6,6 +6,7 @@ __pycache__/
 venv/
 dist/
 build/
+*.spec.bak
 .pytest_cache/
 .ruff_cache/
 

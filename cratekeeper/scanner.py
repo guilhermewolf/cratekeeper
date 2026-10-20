@@ -234,11 +234,17 @@ class Scanner:
                 conn.commit()
         conn.commit()
 
-        # Mark rows whose file disappeared (moves show up as add + missing).
-        for row in conn.execute("SELECT id, path FROM tracks WHERE missing = 0"):
-            if row["path"] not in seen:
-                conn.execute("UPDATE tracks SET missing = 1 WHERE id = ?", (row["id"],))
-                p.removed += 1
+        # Mark rows whose file disappeared (moves show up as add + missing) —
+        # unless the whole library vanished mid-scan (unmounted drive): then
+        # nothing was really deleted and flagging everything would be wrong.
+        if not self.config.library_path.is_dir():
+            log.warning("library root %s is unavailable; keeping existing rows",
+                        self.config.library_path)
+        else:
+            for row in conn.execute("SELECT id, path FROM tracks WHERE missing = 0"):
+                if row["path"] not in seen:
+                    conn.execute("UPDATE tracks SET missing = 1 WHERE id = ?", (row["id"],))
+                    p.removed += 1
         conn.commit()
 
         self.compute_duplicates()

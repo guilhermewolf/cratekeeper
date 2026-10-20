@@ -12,7 +12,7 @@
   <div class="brand">
     <span class="brand-mark">🎧</span>
     <h1>cratekeeper</h1>
-    <span class="library-path" id="library-path"></span>
+    <button class="library-path" id="library-path" title="Change music folder"></button>
   </div>
   <div class="topbar-actions">
     <span id="scan-indicator" class="scan-indicator" hidden>
@@ -26,6 +26,20 @@
 </header>
 
 <main>
+  <section class="setup" id="setup" hidden>
+    <div class="setup-text">
+      <h2 id="setup-title">Where is your music?</h2>
+      <p id="setup-sub">Pick the folder cratekeeper should index. It only reads your files — nothing is moved or rewritten.</p>
+    </div>
+    <form class="setup-form" id="setup-form">
+      <button type="button" class="btn btn-primary desktop-only" id="btn-choose-folder">Choose folder…</button>
+      <input type="text" id="setup-path" class="browser-only" placeholder="/Users/you/Music" autocomplete="off" spellcheck="false">
+      <button type="submit" class="btn btn-primary browser-only" id="btn-save-path">Use this folder</button>
+      <button type="button" class="btn btn-small" id="btn-setup-cancel" hidden>Cancel</button>
+    </form>
+    <p class="setup-error" id="setup-error" hidden></p>
+  </section>
+
   <section class="tiles" id="tiles">
     <div class="tile">
       <div class="tile-label">Tracks</div>

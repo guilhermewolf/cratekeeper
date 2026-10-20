@@ -89,3 +89,32 @@ def test_normalize_meta():
     assert normalize_meta("x", "") is None
     # different remixes in parens must NOT collapse
     assert normalize_meta("A", "Song (Club Mix)") != normalize_meta("A", "Song (Dub Mix)")
+
+
+def test_watcher_ignores_dot_dirs_like_scanner(config, library, tmp_path):
+    from cratekeeper.watcher import LibraryWatcher, _Handler
+
+    handler = _Handler(LibraryWatcher(config, None))
+    assert handler._relevant(str(library / "a" / "song.mp3"))
+    assert not handler._relevant(str(library / ".quarantine" / "song.mp3"))
+    assert not handler._relevant(str(library / ".stfolder" / "song.mp3"))
+    assert not handler._relevant(str(library / "a" / "notes.txt"))
+
+    # a library that itself lives under a dot-dir is still watched
+    config.library_path = tmp_path / ".hidden" / "music"
+    assert handler._relevant(str(config.library_path / "song.mp3"))
+
+
+def test_scan_keeps_rows_when_library_vanishes(config, library, db):
+    from cratekeeper.scanner import Scanner
+
+    make_silence_mp3(library / "keep.mp3")
+    scanner = Scanner(config, db)
+    scanner.scan()
+    assert db.conn.execute("SELECT COUNT(*) FROM tracks WHERE missing = 0").fetchone()[0] == 1
+
+    import shutil
+    shutil.rmtree(library)  # drive unmounted
+    progress = scanner.scan()
+    assert progress.removed == 0
+    assert db.conn.execute("SELECT COUNT(*) FROM tracks WHERE missing = 0").fetchone()[0] == 1

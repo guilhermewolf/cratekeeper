@@ -1,6 +1,6 @@
 [project]
 name = "cratekeeper"
-version = "0.1.0"
+version = "0.2.0"
 description = "24/7 music library organizer for DJs — indexes your library, finds duplicates, and tracks Mixed In Key + rekordbox status for every song"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27", "ruff>=0.4"]
+# desktop window (macOS): WKWebView via pywebview
+app = ["pywebview>=5.0,<7; sys_platform == 'darwin'"]
+# building cratekeeper.app
+build = ["pyinstaller>=6.10"]
 
 [project.scripts]
 cratekeeper = "cratekeeper.cli:main"
