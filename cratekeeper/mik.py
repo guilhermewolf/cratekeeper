@@ -65,7 +65,7 @@ def _is_mik_payload(obj: dict | None) -> bool:
     return bool(obj) and str(obj.get("source", "")).lower() == "mixedinkey"
 
 
-def detect(tags) -> MikResult:  # noqa: C901 - a flat cascade of formats
+def detect(tags) -> MikResult:  # a flat cascade of formats
     """Detect MIK analysis from a mutagen tag object (may be None)."""
     if tags is None:
         return MikResult("none")

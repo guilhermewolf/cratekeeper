@@ -26,7 +26,7 @@ DEBOUNCE_SECONDS = 5.0
 
 
 class _Handler(FileSystemEventHandler):
-    def __init__(self, watcher: "LibraryWatcher"):
+    def __init__(self, watcher: LibraryWatcher):
         self.watcher = watcher
 
     def _relevant(self, path: str) -> bool:
