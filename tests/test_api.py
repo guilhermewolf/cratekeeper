@@ -65,7 +65,10 @@ def test_detail_includes_duplicates(config, library):
     client = make_client(config)
     Scanner(config, client.app.state.cratekeeper.db).scan()
 
-    track = client.get("/api/tracks/1").json()
+    # ids follow directory walk order, which differs per filesystem
+    rows = client.get("/api/tracks").json()["tracks"]
+    one = next(r for r in rows if r["filename"] == "one.mp3")
+    track = client.get(f"/api/tracks/{one['id']}").json()
     assert len(track["exact_duplicates"]) == 1
     assert track["exact_duplicates"][0]["path"].endswith("one copy.mp3")
     assert track["rekordbox"] is None
