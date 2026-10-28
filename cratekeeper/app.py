@@ -126,10 +126,10 @@ class DesktopApi:
 
     def choose_library(self) -> str | None:
         """Native folder picker; returns the chosen path (or None)."""
-        import webview
-
         if not self._trusted():
             return None
+        import webview
+
         result = self.window.create_file_dialog(
             webview.FileDialog.FOLDER, directory=str(Path.home())
         )
@@ -153,10 +153,10 @@ class DesktopApi:
     def save_rekordbox_xml(self) -> dict:
         """Fetch the rekordbox XML from the server and save it where the
         user picks (native save dialog), then reveal it."""
-        import webview
-
         if not self._trusted():
             return {"ok": False, "error": "untrusted page"}
+        import webview
+
         target = self.window.create_file_dialog(
             webview.FileDialog.SAVE,
             directory=str(Path.home() / "Downloads"),

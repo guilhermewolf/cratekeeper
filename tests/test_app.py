@@ -2,6 +2,7 @@
 
 import json
 import socket
+import time
 
 from fastapi.testclient import TestClient
 
@@ -97,9 +98,14 @@ def test_put_config_switches_library_and_scans(tmp_path, monkeypatch, library):
 
     # the scan kicked off by set_library finishes in the background
     state = client.app.state.cratekeeper
-    state._scan_lock.acquire(timeout=10)
-    state._scan_lock.release()
-    assert client.get("/api/stats").json()["total"] == 1
+    deadline = time.time() + 30
+    while True:
+        # only touch the lock when the scan thread has let go of it
+        if state._scan_lock.acquire(timeout=1):
+            state._scan_lock.release()
+            if client.get("/api/stats").json()["total"] == 1:
+                break
+        assert time.time() < deadline, "background scan did not finish"
     # watcher was started on the new path
     assert state._watching is True
     state.watcher.stop()
