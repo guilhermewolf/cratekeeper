@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_rb ON tracks(rb_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_dup ON tracks(dup_group);
 CREATE INDEX IF NOT EXISTS idx_tracks_metadup ON tracks(meta_dup_group);
 CREATE INDEX IF NOT EXISTS idx_tracks_size ON tracks(size);
+CREATE INDEX IF NOT EXISTS idx_tracks_full_hash ON tracks(full_hash);
 
 CREATE TABLE IF NOT EXISTS rekordbox_tracks (
     rb_id TEXT PRIMARY KEY,
@@ -67,6 +68,7 @@ CREATE TABLE IF NOT EXISTS rekordbox_tracks (
     matched_track_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_rb_path ON rekordbox_tracks(folder_path);
+CREATE INDEX IF NOT EXISTS idx_rb_name_size ON rekordbox_tracks(filename, file_size);
 
 CREATE TABLE IF NOT EXISTS meta (
     k TEXT PRIMARY KEY,

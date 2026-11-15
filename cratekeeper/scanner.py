@@ -218,6 +218,7 @@ class Scanner:
         p.total = len(files)
         seen = set()
         conn = self.db.conn
+        last_commit = time.monotonic()
         for i, path in enumerate(files):
             seen.add(str(path))
             try:
@@ -230,8 +231,11 @@ class Scanner:
                 p.errors += 1
                 log.exception("failed to scan %s", path)
             p.done = i + 1
-            if p.done % 200 == 0:
+            # Commit often enough that slow tag reads (network shares) never keep
+            # the write lock long enough to starve the watcher or API writers.
+            if p.done % 200 == 0 or time.monotonic() - last_commit > 1.0:
                 conn.commit()
+                last_commit = time.monotonic()
         conn.commit()
 
         # Mark rows whose file disappeared (moves show up as add + missing) —
@@ -279,8 +283,10 @@ class Scanner:
                 fh = full_hash(Path(row["path"]))
             except OSError:
                 continue
-            conn.execute("UPDATE tracks SET full_hash = ? WHERE id = ?", (fh, row["id"]))
-        conn.commit()
+            # commit per file: the next full_hash() read can take seconds and must
+            # not run while this connection holds the write lock
+            with conn:
+                conn.execute("UPDATE tracks SET full_hash = ? WHERE id = ?", (fh, row["id"]))
 
         self.progress.state = "grouping"
         conn.execute("UPDATE tracks SET dup_group = NULL, meta_dup_group = NULL")
