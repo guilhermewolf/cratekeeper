@@ -5,6 +5,7 @@ const state = {
   mik: "",
   rekordbox: "",
   dupes: "",
+  added: "",
   sort: "artist",
   order: "asc",
   page: 1,
@@ -99,6 +100,8 @@ async function loadStats() {
     $("#scan-indicator-text").textContent = label;
   }
 
+  renderNew(s.new);
+
   const syncBits = [];
   if (s.last_scan) syncBits.push(`library scanned ${relTime(s.last_scan)}`);
   if (s.last_rekordbox_sync) syncBits.push(`rekordbox synced ${relTime(s.last_rekordbox_sync)}`);
@@ -127,6 +130,80 @@ function relTime(ts) {
   if (secs < 86400) return `${Math.round(secs / 3600)} h ago`;
   return `${Math.round(secs / 86400)} d ago`;
 }
+
+/* ---- new files since the last push ---- */
+
+let newWindow = null;  // {since, until} of the list currently shown
+
+function renderNew(n) {
+  $("#new-files").hidden = !n.count;
+  if (!n.count) return;
+  newWindow = { since: n.since, until: n.until };
+  $("#new-title").textContent = `${fmtNum(n.count)} new file${n.count === 1 ? "" : "s"} since last push`;
+  $("#new-sub").textContent =
+    `${fmtNum(n.unanalyzed)} not analyzed in Mixed In Key · ${fmtNum(n.not_in_rekordbox)} not in rekordbox`;
+}
+
+function showNewError(msg) {
+  const err = $("#new-error");
+  err.textContent = msg;
+  err.hidden = !msg;
+}
+
+async function ackNew(until) {
+  await fetch("/api/new/ack", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ until }),
+  });
+  await loadStats();
+  if (state.added === "new") loadTracks();
+}
+
+async function pushNew() {
+  if (!newWindow) return;
+  const { since, until } = newWindow;
+  const qs = new URLSearchParams({ since, until });
+  const btn = $("#btn-new-push");
+  btn.disabled = true;
+  showNewError("");
+  try {
+    const stats = await (await fetch("/api/new")).json();
+    if (stats.unanalyzed) {
+      // ponytail: API caps at 2000; a bigger drop gets acked with the rest unsent — loop if that happens
+      qs.set("limit", 2000);
+      const res = await fetch(`/api/actions/mik?${qs}`, { method: "POST" });
+      const data = await res.json();
+      if (!data.ok) { showNewError(`Mixed In Key: ${data.error}`); return; }
+      qs.delete("limit");
+    }
+    if (stats.not_in_rekordbox) {
+      const api = desktop();
+      if (api) {
+        const result = await api.save_rekordbox_xml(since, until);
+        if (!result.ok) {
+          if (!result.cancelled) showNewError(`rekordbox XML: ${result.error}`);
+          return;  // keep the list so the push can be retried
+        }
+      } else {
+        const a = document.createElement("a");
+        a.href = `/api/export/rekordbox.xml?${qs}`;
+        a.download = "cratekeeper-new-rekordbox.xml";
+        a.click();
+      }
+    }
+    await ackNew(until);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$("#btn-new-push").addEventListener("click", pushNew);
+$("#btn-new-ack").addEventListener("click", () => newWindow && ackNew(newWindow.until));
+$("#btn-new-show").addEventListener("click", () => {
+  document.querySelector('.chip[data-group="added"][data-value="new"]').click();
+  document.querySelector(".filters").scrollIntoView({ behavior: "smooth" });
+});
 
 /* ---- library folder setup ---- */
 
@@ -222,6 +299,7 @@ async function loadTracks() {
     mik: state.mik,
     rekordbox: state.rekordbox,
     dupes: state.dupes,
+    added: state.added,
     sort: state.sort,
     order: state.order,
     page: state.page,

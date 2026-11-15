@@ -55,12 +55,20 @@ def _location(path: str) -> str:
     return "file://localhost" + urllib.parse.quote(path)
 
 
-def rekordbox_xml(db: Database, playlist_name: str = "cratekeeper — missing from rekordbox") -> bytes:
-    """Build a rekordbox XML of every non-missing track not in the collection."""
-    rows = db.conn.execute(
-        """SELECT id, path, filename, title, artist, album, genre, bpm, key, size, duration
-           FROM tracks WHERE missing = 0 AND rb_id IS NULL ORDER BY artist, title"""
-    ).fetchall()
+def rekordbox_xml(
+    db: Database,
+    playlist_name: str = "cratekeeper — missing from rekordbox",
+    added: tuple[float, float] | None = None,
+) -> bytes:
+    """Build a rekordbox XML of every non-missing track not in the collection,
+    optionally only those first seen in the (since, until] window."""
+    sql = """SELECT id, path, filename, title, artist, album, genre, bpm, key, size, duration
+             FROM tracks WHERE missing = 0 AND rb_id IS NULL"""
+    params: list = []
+    if added:
+        sql += " AND first_seen > ? AND first_seen <= ?"
+        params += list(added)
+    rows = db.conn.execute(sql + " ORDER BY artist, title", params).fetchall()
 
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
     ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version=__version__, Company="cratekeeper")

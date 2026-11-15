@@ -21,7 +21,8 @@
     <button id="btn-mik" class="btn" hidden title="Open unanalyzed tracks in Mixed In Key (first 100)"></button>
     <a id="btn-rbxml" class="btn" href="/api/export/rekordbox.xml" hidden
        title="Download an XML of tracks missing from rekordbox — import it via rekordbox Preferences → Advanced → Database → rekordbox xml"></a>
-    <button id="btn-rescan" class="btn">Rescan library</button>
+    <button id="btn-rescan" class="btn"
+            title="Rescan the whole library, then re-sync and re-match the rekordbox collection">Full scan &amp; rematch</button>
   </div>
 </header>
 
@@ -38,6 +39,20 @@
       <button type="button" class="btn btn-small" id="btn-setup-cancel" hidden>Cancel</button>
     </form>
     <p class="setup-error" id="setup-error" hidden></p>
+  </section>
+
+  <section class="setup" id="new-files" hidden>
+    <div class="setup-text">
+      <h2 id="new-title"></h2>
+      <p id="new-sub"></p>
+    </div>
+    <div class="setup-form">
+      <button type="button" class="btn btn-small" id="btn-new-show">Show</button>
+      <button type="button" class="btn btn-primary" id="btn-new-push"
+              title="Send the new unanalyzed files to Mixed In Key, save a rekordbox XML of the new files rekordbox doesn't have, then mark them seen">Push new to MIK + rekordbox</button>
+      <button type="button" class="btn btn-small" id="btn-new-ack" title="Clear the list without pushing anything">Mark seen</button>
+    </div>
+    <p class="setup-error" id="new-error" hidden></p>
   </section>
 
   <section class="tiles" id="tiles">
@@ -92,6 +107,11 @@
       <button class="chip active" data-group="dupes" data-value="">All</button>
       <button class="chip" data-group="dupes" data-value="exact">Exact</button>
       <button class="chip" data-group="dupes" data-value="meta">Same song</button>
+    </div>
+    <div class="chip-group" role="group" aria-label="added filter">
+      <span class="chip-group-label">Added</span>
+      <button class="chip active" data-group="added" data-value="">All</button>
+      <button class="chip" data-group="added" data-value="new">New</button>
     </div>
   </section>
 

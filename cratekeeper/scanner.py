@@ -251,6 +251,9 @@ class Scanner:
         p.state = "idle"
         p.finished_at = time.time()
         self.db.set_meta("last_scan", str(p.finished_at))
+        # First scan of a library is the baseline: nothing in it counts as "new".
+        if self.db.get_meta("new_cutoff") is None:
+            self.db.set_meta("new_cutoff", str(p.finished_at))
         log.info(
             "scan done: %d files, +%d ~%d -%d, %d errors",
             p.total, p.added, p.updated, p.removed, p.errors,

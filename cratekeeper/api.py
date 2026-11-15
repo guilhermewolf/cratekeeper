@@ -32,6 +32,10 @@ class ConfigUpdate(BaseModel):
     library_path: str
 
 
+class NewAck(BaseModel):
+    until: float
+
+
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
 
 
@@ -137,6 +141,9 @@ class AppState:
             write_config(path)
             self.config.library_path = path
             self.config.configured = True
+            # a different folder gets a fresh "new files" baseline on its first scan
+            with self.db.conn:
+                self.db.conn.execute("DELETE FROM meta WHERE k = 'new_cutoff'")
             log.info("library set to %s", path)
         self.start_watching()
         # If a scan is mid-flight it will run once more with the new path.
@@ -207,6 +214,48 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             raise HTTPException(400, str(exc))
         return config_payload()
 
+    # ---- new files (first seen after the last push/ack) ---------------------
+
+    def new_since() -> float | None:
+        cutoff = state.db.get_meta("new_cutoff")
+        return float(cutoff) if cutoff is not None else None
+
+    def new_payload() -> dict:
+        conn = state.db.conn
+        since = new_since()
+        if since is None:  # no baseline scan yet
+            return {"count": 0, "unanalyzed": 0, "not_in_rekordbox": 0,
+                    "since": None, "until": None}
+        row = conn.execute(
+            """SELECT COUNT(*) AS n, MAX(first_seen) AS until,
+                 COALESCE(SUM(mik_status = 'none'), 0) AS unanalyzed,
+                 COALESCE(SUM(rb_id IS NULL), 0) AS not_in_rekordbox
+               FROM tracks WHERE missing = 0 AND first_seen > ?""",
+            (since,),
+        ).fetchone()
+        return {"count": row["n"], "unanalyzed": row["unanalyzed"],
+                "not_in_rekordbox": row["not_in_rekordbox"],
+                "since": since, "until": row["until"]}
+
+    def added_window(since: float | None, until: float | None) -> tuple[float, float] | None:
+        if since is None and until is None:
+            return None
+        if since is None or until is None:
+            raise HTTPException(422, "pass both since and until")
+        return (since, until)
+
+    @app.get("/api/new")
+    def new_files():
+        return new_payload()
+
+    @app.post("/api/new/ack")
+    def ack_new(body: NewAck):
+        """Mark everything first seen up to `until` as no longer new."""
+        since = new_since()
+        if since is None or body.until > since:
+            state.db.set_meta("new_cutoff", str(body.until))
+        return new_payload()
+
     # ---- stats -----------------------------------------------------------
 
     @app.get("/api/stats")
@@ -250,6 +299,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
                          WHERE dup_group IS NOT NULL GROUP BY dup_group)"""
                 ).fetchone()[0],
             },
+            "new": new_payload(),
             "tag_errors": one("SELECT COUNT(*) FROM tracks WHERE missing=0 AND tag_error IS NOT NULL"),
             "last_scan": state.db.get_meta("last_scan"),
             "last_rekordbox_sync": state.db.get_meta("last_rekordbox_sync"),
@@ -265,6 +315,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         rekordbox: str = Query("", pattern="^(|in|out|unanalyzed)$"),
         dupes: str = Query("", pattern="^(|exact|meta)$"),
         errors: bool = False,
+        added: str = Query("", pattern="^(|new)$"),
         sort: str = "artist",
         order: str = Query("asc", pattern="^(asc|desc)$"),
         page: int = Query(1, ge=1),
@@ -293,6 +344,11 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             where.append("meta_dup_group IS NOT NULL")
         if errors:
             where.append("tag_error IS NOT NULL")
+        if added == "new":
+            since = new_since()
+            where.append("first_seen > ?" if since is not None else "0")
+            if since is not None:
+                params.append(since)
 
         sort_col = sort if sort in SORTABLE else "artist"
         direction = "DESC" if order == "desc" else "ASC"
@@ -395,28 +451,43 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         return state.rekordbox.sync(force=True)
 
     @app.post("/api/actions/mik")
-    def send_unanalyzed_to_mik(limit: int = Query(100, ge=1, le=2000)):
-        """Open the not-yet-analyzed tracks in Mixed In Key (macOS)."""
+    def send_unanalyzed_to_mik(
+        limit: int = Query(100, ge=1, le=2000),
+        since: float | None = None,
+        until: float | None = None,
+    ):
+        """Open the not-yet-analyzed tracks in Mixed In Key (macOS); with
+        since/until, only those first seen in that window (the new files)."""
         from . import actions
 
+        window = added_window(since, until)
+        sql = "SELECT path FROM tracks WHERE missing = 0 AND mik_status = 'none'"
+        params: list = []
+        if window:
+            sql += " AND first_seen > ? AND first_seen <= ?"
+            params += list(window)
         rows = state.db.conn.execute(
-            """SELECT path FROM tracks WHERE missing = 0 AND mik_status = 'none'
-               ORDER BY artist, title LIMIT ?""",
-            (limit,),
+            sql + " ORDER BY artist, title LIMIT ?", params + [limit]
         ).fetchall()
         if not rows:
             return {"ok": True, "sent": 0}
         return actions.send_to_mixed_in_key([r["path"] for r in rows])
 
     @app.get("/api/export/rekordbox.xml")
-    def export_rekordbox_xml():
-        """rekordbox XML of every track missing from the collection.
+    def export_rekordbox_xml(since: float | None = None, until: float | None = None):
+        """rekordbox XML of every track missing from the collection (with
+        since/until: only the new files first seen in that window).
         Import it via rekordbox Preferences > Advanced > Database > rekordbox xml."""
         from fastapi.responses import Response
 
         from . import actions
 
-        xml = actions.rekordbox_xml(state.db)
+        window = added_window(since, until)
+        if window:
+            xml = actions.rekordbox_xml(
+                state.db, "cratekeeper — new files missing from rekordbox", added=window)
+        else:
+            xml = actions.rekordbox_xml(state.db)
         return Response(
             content=xml,
             media_type="application/xml",

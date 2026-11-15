@@ -23,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -150,9 +151,10 @@ class DesktopApi:
         subprocess.Popen(["open", url])
         return True
 
-    def save_rekordbox_xml(self) -> dict:
+    def save_rekordbox_xml(self, since: float | None = None, until: float | None = None) -> dict:
         """Fetch the rekordbox XML from the server and save it where the
-        user picks (native save dialog), then reveal it."""
+        user picks (native save dialog), then reveal it. With since/until:
+        only the new files first seen in that window."""
         if not self._trusted():
             return {"ok": False, "error": "untrusted page"}
         import webview
@@ -165,9 +167,12 @@ class DesktopApi:
         if not target:
             return {"ok": False, "cancelled": True}
         target_path = Path(target[0] if isinstance(target, (list, tuple)) else target)
+        query = ""
+        if since is not None and until is not None:
+            query = "?" + urllib.parse.urlencode({"since": float(since), "until": float(until)})
         try:
             with urllib.request.urlopen(
-                f"{self.base_url}/api/export/rekordbox.xml", timeout=60
+                f"{self.base_url}/api/export/rekordbox.xml{query}", timeout=60
             ) as resp:
                 target_path.write_bytes(resp.read())
         except OSError as exc:

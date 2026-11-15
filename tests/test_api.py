@@ -104,3 +104,39 @@ def test_index_served(config):
     res = client.get("/")
     assert res.status_code == 200
     assert "cratekeeper" in res.text
+
+
+def test_new_files_flow(config, library):
+    first = library / "old.mp3"
+    make_silence_mp3(first)
+    client = make_client(config)
+    state = client.app.state.cratekeeper
+    scanner = Scanner(config, state.db)
+    scanner.scan()
+
+    # the first scan is the baseline: nothing is new yet
+    assert client.get("/api/new").json()["count"] == 0
+    assert client.get("/api/tracks", params={"added": "new"}).json()["total"] == 0
+
+    fresh = library / "fresh.mp3"
+    make_silence_mp3(fresh)
+    tag_basic(fresh, "New Artist", "New Song")
+    scanner.scan()
+
+    new = client.get("/api/stats").json()["new"]
+    assert new["count"] == 1 and new["unanalyzed"] == 1 and new["not_in_rekordbox"] == 1
+    rows = client.get("/api/tracks", params={"added": "new"}).json()["tracks"]
+    assert [r["filename"] for r in rows] == ["fresh.mp3"]
+
+    # XML scoped to the new-files window holds only the new track
+    from xml.etree import ElementTree as ET
+
+    window = {"since": new["since"], "until": new["until"]}
+    root = ET.fromstring(client.get("/api/export/rekordbox.xml", params=window).content)
+    assert [t.get("Artist") for t in root.findall(".//COLLECTION/TRACK")] == ["New Artist"]
+    assert client.get("/api/export/rekordbox.xml", params={"since": 1}).status_code == 422
+
+    # acknowledging clears the list; a stale (older) ack never moves it back
+    assert client.post("/api/new/ack", json={"until": new["until"]}).json()["count"] == 0
+    client.post("/api/new/ack", json={"until": 0})
+    assert client.get("/api/new").json()["count"] == 0
