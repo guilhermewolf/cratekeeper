@@ -357,7 +357,10 @@ async function loadTracks() {
         : state.dupes === "meta" ? t.meta_dup_group : null;
       const isLead = grp !== null && grp !== lastGroup;
       if (grp !== null) lastGroup = grp;
-      const dupTag = grp !== null && isLead ? `<span class="dup-tag">group ${grp}</span>` : "";
+      const dupTag = (grp !== null && isLead ? `<span class="dup-tag">group ${grp}</span>` : "")
+        + (grp === null ? "" : t.dup_keep
+          ? ` <span class="badge badge-good" title="Suggested copy to keep: in rekordbox, analyzed, best quality">Keep</span>`
+          : ` <span class="badge badge-warning" title="Another copy in this group is the better one to keep">Extra</span>`);
       const sel = selected.has(t.id);
       return `<tr class="${isLead ? "dup-lead" : ""}${sel ? " selected" : ""}" data-id="${t.id}" title="${esc(t.path)}">
         <td class="sel"><input type="checkbox" class="row-sel" data-id="${t.id}" ${sel ? "checked" : ""}
@@ -382,12 +385,37 @@ async function loadTracks() {
   $("#page-label").textContent = `${data.page} / ${lastPage}`;
   $("#prev").disabled = data.page <= 1;
   $("#next").disabled = data.page >= lastPage;
+  $("#dup-actions").hidden = !(state.dupes && data.total);
   const forget = $("#btn-forget");
   forget.hidden = !(state.issue === "missing" && data.total);
   forget.dataset.armed = "";
   forget.textContent = `Forget ${fmtNum(data.total)} missing file${data.total === 1 ? "" : "s"}`;
   renderSelection();
 }
+
+async function duplicateExtras() {
+  const res = await fetch(`/api/duplicates/extras?kind=${state.dupes}`);
+  return res.json();
+}
+
+$("#btn-dup-select").addEventListener("click", async () => {
+  const { ids } = await duplicateExtras();
+  ids.forEach((id) => selected.add(id));
+  setSelStatus(`${fmtNum(ids.length)} extra cop${ids.length === 1 ? "y" : "ies"} selected`);
+  renderSelection();
+});
+
+$("#btn-dup-copy").addEventListener("click", async () => {
+  const btn = $("#btn-dup-copy");
+  const { paths } = await duplicateExtras();
+  try {
+    await navigator.clipboard.writeText(paths.join("\n"));
+    btn.textContent = `Copied ${fmtNum(paths.length)} paths ✓`;
+  } catch {
+    btn.textContent = "Copy failed";
+  }
+  setTimeout(() => { btn.textContent = "Copy extra paths"; }, 2500);
+});
 
 // Two-step instead of confirm(): native dialogs are unreliable in the webview.
 $("#btn-forget").addEventListener("click", async () => {

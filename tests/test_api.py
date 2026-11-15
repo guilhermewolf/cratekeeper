@@ -268,3 +268,26 @@ def test_key_and_bpm_mismatch_filters(config, library):
         assert rows[0][f"{kind}_mismatch"] == 1
     rb = client.get("/api/stats").json()["rekordbox"]
     assert (rb["key_mismatch"], rb["bpm_mismatch"]) == (1, 1)
+
+
+def test_duplicate_keeper_prefers_rekordbox_then_mik(config, library):
+    import shutil
+
+    a = library / "a.mp3"
+    make_silence_mp3(a)
+    tag_basic(a, "Artist", "Song")
+    for name in ("b.mp3", "c.mp3"):
+        shutil.copy(a, library / name)
+    client = make_client(config)
+    db = client.app.state.cratekeeper.db
+    Scanner(config, db).scan()
+    db.conn.execute("UPDATE tracks SET rb_id='7', rb_match='path' WHERE filename='c.mp3'")
+    db.conn.commit()
+
+    (group,) = client.get("/api/duplicates").json()["groups"]
+    assert [t["filename"] for t in group if t["keep"]] == ["c.mp3"]
+    extras = client.get("/api/duplicates/extras").json()
+    assert sorted(p.rsplit("/", 1)[-1] for p in extras["paths"]) == ["a.mp3", "b.mp3"]
+    rows = client.get("/api/tracks", params={"dupes": "exact"}).json()["tracks"]
+    assert {r["filename"]: r["dup_keep"] for r in rows} == {
+        "a.mp3": False, "b.mp3": False, "c.mp3": True}

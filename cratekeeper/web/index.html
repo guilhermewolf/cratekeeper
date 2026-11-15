@@ -157,6 +157,12 @@
     </table>
     <div class="table-footer">
       <span id="result-count"></span>
+      <span id="dup-actions" class="dup-actions" hidden>
+        <button type="button" class="btn btn-small" id="btn-dup-select"
+                title="Add every copy except the suggested keeper of each group to the selection">Select extras</button>
+        <button type="button" class="btn btn-small" id="btn-dup-copy"
+                title="Copy the paths of the extra copies, one per line — delete them in Finder if you agree">Copy extra paths</button>
+      </span>
       <button type="button" class="btn btn-small" id="btn-forget" hidden
               title="Remove these from cratekeeper's index. Nothing on disk is touched.">Forget missing files</button>
       <div class="pager">

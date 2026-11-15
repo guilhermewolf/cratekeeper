@@ -48,6 +48,23 @@ KEY_MISMATCH_SQL = ("(camelot(key) IS NOT NULL AND camelot(rb_key) IS NOT NULL"
 BPM_MISMATCH_SQL = ("(CAST(bpm AS REAL) > 0 AND rb_bpm > 0"
                     " AND abs(CAST(bpm AS REAL) - rb_bpm) > 0.5)")
 
+LOSSLESS = {".flac", ".wav", ".aiff", ".aif"}
+
+
+def keep_rank(t: dict) -> tuple:
+    """Which copy of a duplicate to keep: the one rekordbox uses (cue points,
+    playlists live there), then MIK-analyzed, lossless, higher bitrate,
+    larger file; lowest id breaks ties so the pick is stable."""
+    return (
+        t["rb_id"] is not None and t["rb_match"] != "dup_of",
+        {"confirmed": 2, "likely": 1}.get(t["mik_status"], 0),
+        t["ext"] in LOSSLESS,
+        t["bitrate"] or 0,
+        t["size"] or 0,
+        -t["id"],
+    )
+
+
 MAX_SELECTION = 5000  # well under SQLite's bound-parameter limit
 IDS_PATTERN = r"^(\d{1,12}(,\d{1,12})*)?$"  # count checked in code (bounded regex is huge)
 
@@ -387,11 +404,16 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
                 FROM tracks WHERE {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
+        tracks_out = [dict(r) for r in rows]
+        if dupes:  # mark each group's suggested keeper
+            keepers = {g[0]["id"] for g in duplicate_groups(dupes)}
+            for t in tracks_out:
+                t["dup_keep"] = t["id"] in keepers
         return {
             "total": total,
             "page": page,
             "per_page": per_page,
-            "tracks": [dict(r) for r in rows],
+            "tracks": tracks_out,
         }
 
     def track_filter(
@@ -475,19 +497,36 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
 
     # ---- duplicates --------------------------------------------------------
 
-    @app.get("/api/duplicates")
-    def duplicates(kind: str = Query("exact", pattern="^(exact|meta)$")):
+    def duplicate_groups(kind: str) -> list[list[dict]]:
+        """Duplicate groups, each sorted best-first: element 0 is the
+        suggested copy to keep (see keep_rank)."""
         col = "dup_group" if kind == "exact" else "meta_dup_group"
         rows = state.db.conn.execute(
             f"""SELECT id, path, filename, ext, size, artist, title, bitrate, duration,
-                mik_status, rb_id, {col} AS grp
+                mik_status, rb_id, rb_match, {col} AS grp
                 FROM tracks WHERE {col} IS NOT NULL AND missing = 0
-                ORDER BY {col}, size DESC"""
+                ORDER BY {col}, id"""
         ).fetchall()
         groups: dict[int, list] = {}
         for r in rows:
             groups.setdefault(r["grp"], []).append(dict(r))
-        return {"kind": kind, "groups": list(groups.values())}
+        return [sorted(g, key=keep_rank, reverse=True) for g in groups.values()]
+
+    @app.get("/api/duplicates")
+    def duplicates(kind: str = Query("exact", pattern="^(exact|meta)$")):
+        groups = duplicate_groups(kind)
+        for g in groups:
+            for i, t in enumerate(g):
+                t["keep"] = i == 0
+        return {"kind": kind, "groups": groups}
+
+    @app.get("/api/duplicates/extras")
+    def duplicate_extras(kind: str = Query("exact", pattern="^(exact|meta)$")):
+        """Every duplicate except each group's suggested keeper — what the user
+        could delete (in Finder; cratekeeper never deletes files)."""
+        extras = [t for g in duplicate_groups(kind) for t in g[1:]]
+        return {"kind": kind, "ids": [t["id"] for t in extras],
+                "paths": [t["path"] for t in extras]}
 
     # ---- rekordbox-only tracks ----------------------------------------------
 
