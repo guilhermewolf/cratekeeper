@@ -242,3 +242,29 @@ def test_database_adds_columns_to_old_schema(tmp_path):
     old.close()
     cols = {r["name"] for r in Database(path).conn.execute("PRAGMA table_info(rekordbox_tracks)")}
     assert "file_exists" in cols
+
+
+def test_key_and_bpm_mismatch_filters(config, library):
+    from mutagen.id3 import ID3, TBPM
+
+    for name, bpm in (("same.mp3", "128"), ("diff.mp3", "124")):
+        f = library / name
+        make_silence_mp3(f)
+        tag_as_mik(f, key="8A", energy=5)
+        id3 = ID3(f)
+        id3.add(TBPM(encoding=3, text=[bpm]))
+        id3.save(f)
+    client = make_client(config)
+    db = client.app.state.cratekeeper.db
+    Scanner(config, db).scan()
+    # rekordbox: "Am" == 8A, "Cm" == 5A; 128.0 == 128, 126.0 != 124
+    db.conn.execute("UPDATE tracks SET rb_id='1', rb_key='Am', rb_bpm=128.0 WHERE filename='same.mp3'")
+    db.conn.execute("UPDATE tracks SET rb_id='2', rb_key='Cm', rb_bpm=126.0 WHERE filename='diff.mp3'")
+    db.conn.commit()
+
+    for kind in ("key", "bpm"):
+        rows = client.get("/api/tracks", params={"mismatch": kind}).json()["tracks"]
+        assert [r["filename"] for r in rows] == ["diff.mp3"]
+        assert rows[0][f"{kind}_mismatch"] == 1
+    rb = client.get("/api/stats").json()["rekordbox"]
+    assert (rb["key_mismatch"], rb["bpm_mismatch"]) == (1, 1)

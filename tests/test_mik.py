@@ -94,3 +94,15 @@ def test_garbage_payload_does_not_crash():
 ])
 def test_camelot_regex(key, ok):
     assert bool(mik.CAMELOT_RE.match(key)) is ok
+
+
+def test_to_camelot_normalizes_classic_and_camelot_keys():
+    from cratekeeper.mik import to_camelot
+
+    assert to_camelot("Am") == to_camelot("8A") == "8A"
+    assert to_camelot("C") == "8B"
+    assert to_camelot("F#m") == to_camelot("Gbm") == "11A"
+    assert to_camelot("Db") == to_camelot("C#") == "3B"
+    assert to_camelot("Bb minor") == "3A"
+    assert to_camelot("12b") == "12B"
+    assert to_camelot("H") is None and to_camelot("13A") is None and to_camelot(None) is None

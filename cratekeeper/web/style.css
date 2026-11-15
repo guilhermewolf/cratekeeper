@@ -264,3 +264,4 @@ tbody tr.selected td { background: var(--surface-2); }
 }
 
 .detail-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }
+.mismatch { color: var(--status-warning); font-weight: 600; cursor: help; }

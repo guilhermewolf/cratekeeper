@@ -153,3 +153,35 @@ def detect(tags) -> MikResult:  # a flat cascade of formats
     if key and CAMELOT_RE.match(key.strip()) and energy is not None:
         return MikResult("likely", key, energy)
     return MikResult("none", key, energy)
+
+
+# ---- key notation ------------------------------------------------------------
+
+_PITCH = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+_CLASSIC_RE = re.compile(
+    r"^([A-G])([#♯b♭]?)\s*(m|min|minor|maj|major)?$", re.IGNORECASE)
+_CAMELOT_STRICT_RE = re.compile(r"^(1[0-2]|[1-9])\s*([AB])$", re.IGNORECASE)
+
+
+def to_camelot(key: str | None) -> str | None:
+    """Normalize a key to Camelot ("8A"): accepts Camelot itself or classic
+    notation as rekordbox stores it ("Am", "F#m", "Db", "Bb minor").
+    Returns None for anything unrecognized. Never raises."""
+    if not key or not isinstance(key, str):
+        return None
+    k = key.strip()
+    m = _CAMELOT_STRICT_RE.match(k)
+    if m:
+        return f"{int(m.group(1))}{m.group(2).upper()}"
+    m = _CLASSIC_RE.match(k)
+    if not m:
+        return None
+    letter, accidental, quality = m.group(1).upper(), m.group(2), (m.group(3) or "")
+    # "m" alone is minor; case matters for single-letter "M" only in theory —
+    # rekordbox and MIK never write it, so treat any m/min/minor as minor.
+    minor = quality.lower() in ("m", "min", "minor")
+    pc = _PITCH[letter] + {"#": 1, "♯": 1, "b": -1, "♭": -1}.get(accidental, 0)
+    if minor:
+        pc += 3  # relative major shares the Camelot number
+    number = (pc % 12 * 7 + 8) % 12 or 12
+    return f"{number}{'A' if minor else 'B'}"

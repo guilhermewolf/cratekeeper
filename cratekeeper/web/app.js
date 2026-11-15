@@ -7,6 +7,7 @@ const state = {
   dupes: "",
   added: "",
   issue: "",
+  mismatch: "",
   sort: "artist",
   order: "asc",
   page: 1,
@@ -71,7 +72,9 @@ async function loadStats() {
   $("#stat-rb-sub").textContent = rb.available === false
     ? `rekordbox db unavailable: ${rb.error ?? "not found"}`
     : `${fmtNum(rb.not_in_rekordbox)} not imported · ${fmtNum(rb.not_analyzed)} imported but unanalyzed`
-      + (rb.relocate ? ` · ${fmtNum(rb.relocate)} to relocate` : "");
+      + (rb.relocate ? ` · ${fmtNum(rb.relocate)} to relocate` : "")
+      + (rb.key_mismatch || rb.bpm_mismatch
+        ? ` · MIK disagrees: ${fmtNum(rb.key_mismatch)} key, ${fmtNum(rb.bpm_mismatch)} BPM` : "");
   renderProportion("#rb-bar", s.total, [[rb.in_rekordbox, "var(--series-1)"]]);
 
   const d = s.duplicates;
@@ -282,6 +285,15 @@ $("#library-path").addEventListener("click", () => {
 
 /* ---- tracks table ---- */
 
+function mismatchMark(title) {
+  return ` <span class="mismatch" title="${esc(title)}" aria-label="${esc(title)}">≠</span>`;
+}
+
+function tempoNote(t) {
+  const ratio = parseFloat(t.bpm) / t.rb_bpm;
+  return Math.abs(ratio - 2) < 0.02 || Math.abs(ratio - 0.5) < 0.005 ? " (half/double tempo)" : "";
+}
+
 function mikBadge(t) {
   if (t.mik_status === "confirmed")
     return `<span class="badge badge-good">Analyzed</span>`;
@@ -311,6 +323,7 @@ async function loadTracks() {
     dupes: state.dupes,
     added: state.added,
     issue: state.issue,
+    mismatch: state.mismatch,
     sort: state.sort,
     order: state.order,
     page: state.page,
@@ -351,9 +364,9 @@ async function loadTracks() {
           aria-label="Select ${esc(t.artist ?? "")} ${esc(t.title ?? t.filename)}"></td>
         <td class="primary">${esc(t.artist ?? "—")}${dupTag}</td>
         <td>${esc(t.title ?? t.filename)}</td>
-        <td class="num">${esc(t.key ?? "")}</td>
+        <td class="num">${esc(t.key ?? "")}${t.key_mismatch ? mismatchMark(`rekordbox: ${t.rb_key}`) : ""}</td>
         <td class="num">${t.energy ?? ""}</td>
-        <td class="num">${esc(t.bpm ?? "")}</td>
+        <td class="num">${esc(t.bpm ?? "")}${t.bpm_mismatch ? mismatchMark(`rekordbox: ${t.rb_bpm}`) : ""}</td>
         <td>${mikBadge(t)}</td>
         <td>${rbBadge(t)}</td>
         <td>${esc((t.ext ?? "").replace(".", "").toUpperCase())}</td>
@@ -520,7 +533,8 @@ async function openDetail(id) {
     ["Bitrate", t.bitrate ? `${Math.round(t.bitrate / 1000)} kbps` : null],
     ["Size", fmtBytes(t.size)],
     ["Format", (t.ext ?? "").replace(".", "").toUpperCase()],
-    ["rekordbox key", t.rb_key], ["rekordbox BPM", t.rb_bpm],
+    ["rekordbox key", t.rb_key && (t.key_mismatch ? `${t.rb_key} ≠ ${t.key}` : t.rb_key)],
+    ["rekordbox BPM", t.rb_bpm && (t.bpm_mismatch ? `${t.rb_bpm} ≠ ${t.bpm}${tempoNote(t)}` : t.rb_bpm)],
     ["Tag error", t.tag_error],
   ].filter(([, v]) => v != null && v !== "");
 

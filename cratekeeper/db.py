@@ -10,6 +10,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from .mik import to_camelot
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tracks (
     id INTEGER PRIMARY KEY,
@@ -106,6 +108,8 @@ class Database:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA foreign_keys=ON")
+            # lets SQL compare MIK keys (Camelot) with rekordbox keys ("Am")
+            conn.create_function("camelot", 1, to_camelot, deterministic=True)
             self._local.conn = conn
         return conn
 

@@ -41,6 +41,13 @@ class NewAck(BaseModel):
 RELOCATE_SQL = ("rb_match = 'name_size' AND rb_id IN"
                 " (SELECT rb_id FROM rekordbox_tracks WHERE file_exists = 0)")
 
+# MIK (tags) vs rekordbox analysis disagreements. camelot() is registered on
+# every connection (db.py); NULL on either side never counts as a mismatch.
+KEY_MISMATCH_SQL = ("(camelot(key) IS NOT NULL AND camelot(rb_key) IS NOT NULL"
+                    " AND camelot(key) != camelot(rb_key))")
+BPM_MISMATCH_SQL = ("(CAST(bpm AS REAL) > 0 AND rb_bpm > 0"
+                    " AND abs(CAST(bpm AS REAL) - rb_bpm) > 0.5)")
+
 MAX_SELECTION = 5000  # well under SQLite's bound-parameter limit
 IDS_PATTERN = r"^(\d{1,12}(,\d{1,12})*)?$"  # count checked in code (bounded regex is huge)
 
@@ -308,6 +315,10 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
                 "file_gone": one("SELECT COUNT(*) FROM rekordbox_tracks WHERE file_exists = 0"),
                 # ... and of those, the ones whose file we found elsewhere
                 "relocate": one(f"SELECT COUNT(*) FROM tracks WHERE missing=0 AND {RELOCATE_SQL}"),
+                "key_mismatch": one(
+                    f"SELECT COUNT(*) FROM tracks WHERE missing=0 AND {KEY_MISMATCH_SQL}"),
+                "bpm_mismatch": one(
+                    f"SELECT COUNT(*) FROM tracks WHERE missing=0 AND {BPM_MISMATCH_SQL}"),
             },
             "duplicates": {
                 "exact_groups": one("SELECT COUNT(DISTINCT dup_group) FROM tracks WHERE dup_group IS NOT NULL"),
@@ -343,6 +354,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         errors: bool = False,
         issue: str = Query("", pattern="^(|errors|missing)$"),
         added: str = Query("", pattern="^(|new)$"),
+        mismatch: str = Query("", pattern="^(|key|bpm)$"),
         sort: str = "artist",
         order: str = Query("asc", pattern="^(asc|desc)$"),
         page: int = Query(1, ge=1),
@@ -350,7 +362,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     ):
         clause, params = track_filter(
             search, mik, rekordbox, dupes, errors or issue == "errors", added,
-            missing=issue == "missing")
+            missing=issue == "missing", mismatch=mismatch)
         sort_col = sort if sort in SORTABLE else "artist"
         direction = "DESC" if order == "desc" else "ASC"
         if dupes == "exact":
@@ -370,7 +382,8 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         rows = conn.execute(
             f"""SELECT id, path, filename, ext, size, artist, title, album, genre, bpm,
                 duration, bitrate, key, energy, mik_status, rb_id, rb_match, rb_analyzed,
-                rb_key, rb_bpm, tag_error, dup_group, meta_dup_group
+                rb_key, rb_bpm, tag_error, dup_group, meta_dup_group,
+                {KEY_MISMATCH_SQL} AS key_mismatch, {BPM_MISMATCH_SQL} AS bpm_mismatch
                 FROM tracks WHERE {clause} ORDER BY {order_by} LIMIT ? OFFSET ?""",
             params + [per_page, (page - 1) * per_page],
         ).fetchall()
@@ -384,7 +397,7 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     def track_filter(
         search: str = "", mik: str = "", rekordbox: str = "", dupes: str = "",
         errors: bool = False, added: str = "", ids: list[int] | None = None,
-        missing: bool = False,
+        missing: bool = False, mismatch: str = "",
     ) -> tuple[str, list]:
         """WHERE clause shared by the track list and the actions/exports that
         operate on a filter or a selection. Inputs are already validated.
@@ -411,6 +424,10 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             where.append("rb_id IS NOT NULL AND rb_analyzed = 0")
         elif rekordbox == "relocate":
             where.append(RELOCATE_SQL)
+        if mismatch == "key":
+            where.append(KEY_MISMATCH_SQL)
+        elif mismatch == "bpm":
+            where.append(BPM_MISMATCH_SQL)
         if dupes == "exact":
             where.append("dup_group IS NOT NULL")
         elif dupes == "meta":
@@ -427,7 +444,9 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     @app.get("/api/tracks/{track_id}")
     def track_detail(track_id: int):
         conn = state.db.conn
-        row = conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
+        row = conn.execute(
+            f"""SELECT *, {KEY_MISMATCH_SQL} AS key_mismatch, {BPM_MISMATCH_SQL} AS bpm_mismatch
+                FROM tracks WHERE id = ?""", (track_id,)).fetchone()
         if not row:
             raise HTTPException(404, "track not found")
         track = dict(row)
