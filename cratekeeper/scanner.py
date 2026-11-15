@@ -186,16 +186,35 @@ class Scanner:
                 values,
             )
             return "updated"
+        values["first_seen"] = self._moved_from_first_seen(path, st.st_size, phash) or now
         conn.execute(
             """INSERT INTO tracks (path, filename, ext, size, mtime, partial_hash, artist,
                title, album, genre, bpm, duration, bitrate, key, energy, mik_status,
                tag_error, first_seen, last_seen)
                VALUES (:path, :filename, :ext, :size, :mtime, :partial_hash, :artist, :title,
                :album, :genre, :bpm, :duration, :bitrate, :key, :energy, :mik_status,
-               :tag_error, :last_seen, :last_seen)""",
+               :tag_error, :first_seen, :last_seen)""",
             values,
         )
         return "added"
+
+    def _moved_from_first_seen(self, path: Path, size: int, phash: str | None) -> float | None:
+        """A file that is really a move/rename of a known one keeps its original
+        first_seen, so reorganizing folders doesn't make everything "new".
+        Only rows whose file is gone count, and the old row is dropped once
+        claimed — so a later copy of the same file is genuinely new."""
+        if phash is None:
+            return None
+        conn = self.db.conn
+        for row in conn.execute(
+            """SELECT id, path, first_seen FROM tracks
+               WHERE size = ? AND partial_hash = ? AND path != ? ORDER BY first_seen""",
+            (size, phash, str(path)),
+        ).fetchall():
+            if not os.path.exists(row["path"]):
+                conn.execute("DELETE FROM tracks WHERE id = ?", (row["id"],))
+                return row["first_seen"]
+        return None
 
     def remove_file(self, path: Path) -> None:
         with self.db.conn:
@@ -203,10 +222,13 @@ class Scanner:
 
     # ---- full scan -------------------------------------------------------
 
-    def iter_library(self):
+    def iter_library(self, root: Path | None = None, errors: list | None = None):
         exts = self.config.extensions
         ignore = self.config.ignore_dirs
-        for dirpath, dirnames, filenames in os.walk(self.config.library_path):
+        onerror = errors.append if errors is not None else None
+        for dirpath, dirnames, filenames in os.walk(
+            root or self.config.library_path, onerror=onerror
+        ):
             dirnames[:] = [d for d in dirnames if d not in ignore and not d.startswith(".")]
             for name in filenames:
                 if os.path.splitext(name)[1].lower() in exts:
@@ -214,7 +236,10 @@ class Scanner:
 
     def scan(self) -> ScanProgress:
         p = self.progress = ScanProgress(state="scanning", started_at=time.time())
-        files = list(self.iter_library())
+        # set_library may re-aim config mid-scan; this pass sticks to one root
+        root = self.config.library_path
+        walk_errors: list[OSError] = []
+        files = list(self.iter_library(root, walk_errors))
         p.total = len(files)
         seen = set()
         conn = self.db.conn
@@ -239,13 +264,16 @@ class Scanner:
         conn.commit()
 
         # Mark rows whose file disappeared (moves show up as add + missing) —
-        # unless the whole library vanished mid-scan (unmounted drive): then
-        # nothing was really deleted and flagging everything would be wrong.
-        if not self.config.library_path.is_dir():
-            log.warning("library root %s is unavailable; keeping existing rows",
-                        self.config.library_path)
+        # unless the walk was incomplete: an unmounted drive or an unreadable
+        # folder (network share hiccup, permissions). Then nothing was really
+        # deleted and flagging those tracks would be wrong.
+        if not root.is_dir():
+            log.warning("library root %s is unavailable; keeping existing rows", root)
+        elif walk_errors:
+            log.warning("%d folder(s) unreadable during scan (first: %s); keeping existing rows",
+                        len(walk_errors), walk_errors[0])
         else:
-            for row in conn.execute("SELECT id, path FROM tracks WHERE missing = 0"):
+            for row in conn.execute("SELECT id, path FROM tracks WHERE missing = 0").fetchall():
                 if row["path"] not in seen:
                     conn.execute("UPDATE tracks SET missing = 1 WHERE id = ?", (row["id"],))
                     p.removed += 1
@@ -256,8 +284,11 @@ class Scanner:
         p.finished_at = time.time()
         self.db.set_meta("last_scan", str(p.finished_at))
         # First scan of a library is the baseline: nothing in it counts as "new".
-        if self.db.get_meta("new_cutoff") is None:
+        # Tracked per root, so switching folders (even mid-scan) rebaselines.
+        if (self.db.get_meta("new_cutoff") is None
+                or self.db.get_meta("new_cutoff_library") != str(root)):
             self.db.set_meta("new_cutoff", str(p.finished_at))
+            self.db.set_meta("new_cutoff_library", str(root))
         log.info(
             "scan done: %d files, +%d ~%d -%d, %d errors",
             p.total, p.added, p.updated, p.removed, p.errors,

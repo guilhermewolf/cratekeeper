@@ -74,6 +74,7 @@ class LibraryWatcher:
         self._lock = threading.Lock()
         self._last_event = 0.0
         self._observer: Observer | None = None
+        self._drain: threading.Thread | None = None
         self._stop = threading.Event()
 
     def enqueue(self, action: str, path: str) -> None:
@@ -85,13 +86,21 @@ class LibraryWatcher:
         self._observer = Observer()
         self._observer.schedule(_Handler(self), str(self.config.library_path), recursive=True)
         self._observer.start()
-        threading.Thread(target=self._drain_loop, name="cratekeeper-watcher", daemon=True).start()
+        self._drain = threading.Thread(
+            target=self._drain_loop, name="cratekeeper-watcher", daemon=True)
+        self._drain.start()
         log.info("watching %s", self.config.library_path)
+
+    def alive(self) -> bool:
+        return self._observer is not None and self._observer.is_alive()
 
     def stop(self) -> None:
         self._stop.set()
         if self._observer:
             self._observer.stop()
+        # let an in-flight batch finish before a replacement watcher starts
+        if self._drain is not None and self._drain is not threading.current_thread():
+            self._drain.join(timeout=30)
 
     def _drain_loop(self) -> None:
         scanner = Scanner(self.config, self.db)

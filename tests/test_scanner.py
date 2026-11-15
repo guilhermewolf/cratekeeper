@@ -118,3 +118,61 @@ def test_scan_keeps_rows_when_library_vanishes(config, library, db):
     progress = scanner.scan()
     assert progress.removed == 0
     assert db.conn.execute("SELECT COUNT(*) FROM tracks WHERE missing = 0").fetchone()[0] == 1
+
+
+def test_moved_file_keeps_first_seen_but_new_copy_does_not(config, db, library):
+    src = library / "a" / "song.mp3"
+    make_silence_mp3(src)
+    tag_basic(src, "Artist", "Song")
+    scanner = Scanner(config, db)
+    scanner.scan()
+    original = db.conn.execute("SELECT first_seen FROM tracks").fetchone()[0]
+
+    dest = library / "b" / "renamed.mp3"
+    dest.parent.mkdir()
+    src.rename(dest)
+    scanner.scan()
+    moved = db.conn.execute(
+        "SELECT first_seen FROM tracks WHERE path = ?", (str(dest),)).fetchone()[0]
+    assert moved == original
+
+    copy = library / "c" / "copy.mp3"
+    copy.parent.mkdir()
+    shutil.copy(dest, copy)
+    scanner.scan()
+    fresh = db.conn.execute(
+        "SELECT first_seen FROM tracks WHERE path = ?", (str(copy),)).fetchone()[0]
+    assert fresh > original
+
+
+def test_unreadable_folder_does_not_mark_tracks_missing(config, db, library):
+    import os
+
+    locked = library / "locked"
+    make_silence_mp3(locked / "x.mp3")
+    make_silence_mp3(library / "y.mp3")
+    scanner = Scanner(config, db)
+    scanner.scan()
+    os.chmod(locked, 0)
+    try:
+        if os.access(locked, os.R_OK):  # running as root: chmod has no effect
+            return
+        scanner.scan()
+    finally:
+        os.chmod(locked, 0o755)
+    assert db.conn.execute("SELECT COUNT(*) FROM tracks WHERE missing = 1").fetchone()[0] == 0
+
+
+def test_switching_library_rebaselines_new_files(config, db, library, tmp_path):
+    make_silence_mp3(library / "old.mp3")
+    scanner = Scanner(config, db)
+    scanner.scan()
+    other = tmp_path / "other"
+    make_silence_mp3(other / "elsewhere.mp3")
+    config.library_path = other
+    scanner.scan()
+    cutoff = float(db.get_meta("new_cutoff"))
+    assert db.get_meta("new_cutoff_library") == str(other)
+    assert db.conn.execute(
+        "SELECT COUNT(*) FROM tracks WHERE missing = 0 AND first_seen > ?", (cutoff,)
+    ).fetchone()[0] == 0

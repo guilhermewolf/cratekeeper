@@ -96,6 +96,10 @@ class AppState:
                 self.scanner.progress.state = "idle"
             finally:
                 self._scan_lock.release()
+            # set_library may have asked for a pass between the check above and
+            # the release, while its own scan_async() could not get the lock
+            if self._rescan_pending:
+                self.scan_async()
 
         threading.Thread(target=run, name="cratekeeper-scan", daemon=True).start()
         return True
@@ -120,6 +124,10 @@ class AppState:
             last_full = 0.0
             while True:
                 now = time.time()
+                # library drive mounted after launch, or remounted (dead observer)
+                if self.library_ready and not (self._watching and self.watcher.alive()):
+                    log.info("library available — (re)starting the watcher")
+                    self.start_watching()
                 if self.library_ready and now - last_full >= self.config.rescan_interval:
                     last_full = now
                     self.scan_async()
@@ -141,9 +149,6 @@ class AppState:
             write_config(path)
             self.config.library_path = path
             self.config.configured = True
-            # a different folder gets a fresh "new files" baseline on its first scan
-            with self.db.conn:
-                self.db.conn.execute("DELETE FROM meta WHERE k = 'new_cutoff'")
             log.info("library set to %s", path)
         self.start_watching()
         # If a scan is mid-flight it will run once more with the new path.
