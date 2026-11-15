@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+import unicodedata
 import urllib.parse
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -52,7 +53,8 @@ def send_to_mixed_in_key(paths: list[str], app_name: str | None = None) -> dict:
 
 
 def _location(path: str) -> str:
-    return "file://localhost" + urllib.parse.quote(path)
+    # NFC like rekordbox's own FolderPath, so the import links back by path
+    return "file://localhost" + urllib.parse.quote(unicodedata.normalize("NFC", path))
 
 
 def rekordbox_xml(

@@ -287,6 +287,8 @@ function mikBadge(t) {
 function rbBadge(t) {
   if (!t.rb_id)
     return `<span class="badge badge-critical">Not imported</span>`;
+  if (t.rb_match === "dup_of")
+    return `<span class="badge badge-warning" title="Same filename and size as a file rekordbox already has">Copy of imported</span>`;
   if (t.rb_analyzed === 0)
     return `<span class="badge badge-warning">Imported, unanalyzed</span>`;
   const via = t.rb_match === "name_size" ? " (moved)" : "";

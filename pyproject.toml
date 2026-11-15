@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.29",
     "mutagen>=1.47",
-    "pyrekordbox>=0.4",
+    "pyrekordbox>=0.5",
     "watchdog>=4.0",
     "tomli>=2.0; python_version < '3.11'",
 ]

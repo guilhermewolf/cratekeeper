@@ -10,12 +10,23 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
+import unicodedata
+from collections import defaultdict
 from pathlib import Path
 
 from .db import Database
 
 log = logging.getLogger("cratekeeper.rekordbox")
+
+# A real file location: POSIX absolute or Windows drive path. rekordbox also
+# lists bundled/streaming content with other FolderPath shapes.
+FILE_PATH_RE = re.compile(r"^(/|[A-Za-z]:[\\/])")
+
+
+def nfc(s: str | None) -> str:
+    return unicodedata.normalize("NFC", s or "")
 
 
 def _rb_db_path() -> Path | None:
@@ -81,13 +92,15 @@ class RekordboxSync:
         return {"ok": True, "collection": len(rows), "matched": matched}
 
     def _read_collection(self) -> list[dict]:
-        from pyrekordbox import Rekordbox6Database
+        from pyrekordbox import MasterDatabase
 
-        rb = Rekordbox6Database()
+        rb = MasterDatabase()  # never committed: read-only
         rows = []
         try:
-            for c in rb.get_content():
+            for c in rb.get_content().filter_by(rb_local_deleted=0):
                 folder = c.FolderPath or ""
+                if not FILE_PATH_RE.match(folder):
+                    continue
                 key = None
                 try:
                     if c.Key is not None:
@@ -122,45 +135,67 @@ class RekordboxSync:
         return rows
 
     def _link_tracks(self) -> int:
+        """Link tracks to collection entries. Paths are compared NFC-normalized:
+        rekordbox stores NFC while macOS filenames are often NFD on disk.
+
+        1. path      — same file rekordbox knows.
+        2. name_size — same filename + size, rekordbox entry not claimed by a
+                       path match: the file moved since rekordbox imported it.
+        3. dup_of    — same filename + size as an entry another file already
+                       claims: a duplicate copy of a song rekordbox has.
+        """
         conn = self.db.conn
+        rb_rows = conn.execute(
+            "SELECT rb_id, folder_path, filename, file_size, analyzed, key, bpm"
+            " FROM rekordbox_tracks ORDER BY rb_id"
+        ).fetchall()
+        rb_info = {r["rb_id"]: r for r in rb_rows}
+        by_path: dict[str, str] = {}
+        by_name_size: dict[tuple[str, int], list[str]] = defaultdict(list)
+        for r in rb_rows:
+            by_path.setdefault(nfc(r["folder_path"]), r["rb_id"])
+            by_name_size[(nfc(r["filename"]), r["file_size"])].append(r["rb_id"])
+
+        tracks = conn.execute(
+            "SELECT id, path, filename, size FROM tracks ORDER BY missing, id"
+        ).fetchall()
+        links: dict[int, tuple[str, str]] = {}  # track id -> (rb_id, match)
+        claimed: dict[str, int] = {}  # rb_id -> track id
+        for t in tracks:
+            rb_id = by_path.get(nfc(t["path"]))
+            if rb_id is not None and rb_id not in claimed:
+                links[t["id"]] = (rb_id, "path")
+                claimed[rb_id] = t["id"]
+        for t in tracks:
+            if t["id"] in links:
+                continue
+            candidates = by_name_size.get((nfc(t["filename"]), t["size"]))
+            if not candidates:
+                continue
+            free = [c for c in candidates if c not in claimed]
+            if free:
+                links[t["id"]] = (free[0], "name_size")
+                claimed[free[0]] = t["id"]
+            else:
+                links[t["id"]] = (candidates[0], "dup_of")
+
         with conn:
             conn.execute(
                 "UPDATE tracks SET rb_id=NULL, rb_match=NULL, rb_analyzed=NULL,"
                 " rb_key=NULL, rb_bpm=NULL"
             )
             conn.execute("UPDATE rekordbox_tracks SET matched_track_id = NULL")
-
-            # 1. exact path match
-            conn.execute(
-                """UPDATE tracks SET
-                     rb_id = (SELECT r.rb_id FROM rekordbox_tracks r WHERE r.folder_path = tracks.path),
-                     rb_match = 'path'
-                   WHERE EXISTS (SELECT 1 FROM rekordbox_tracks r WHERE r.folder_path = tracks.path)"""
+            conn.executemany(
+                "UPDATE tracks SET rb_id=?, rb_match=?, rb_analyzed=?, rb_key=?, rb_bpm=?"
+                " WHERE id=?",
+                [
+                    (rb_id, match, rb_info[rb_id]["analyzed"], rb_info[rb_id]["key"],
+                     rb_info[rb_id]["bpm"], track_id)
+                    for track_id, (rb_id, match) in links.items()
+                ],
             )
-            # 2. filename + size match for the rest
-            conn.execute(
-                """UPDATE tracks SET
-                     rb_id = (SELECT r.rb_id FROM rekordbox_tracks r
-                              WHERE r.filename = tracks.filename AND r.file_size = tracks.size
-                              LIMIT 1),
-                     rb_match = 'name_size'
-                   WHERE rb_id IS NULL AND EXISTS (
-                     SELECT 1 FROM rekordbox_tracks r
-                     WHERE r.filename = tracks.filename AND r.file_size = tracks.size)"""
+            conn.executemany(
+                "UPDATE rekordbox_tracks SET matched_track_id=? WHERE rb_id=?",
+                [(track_id, rb_id) for rb_id, track_id in claimed.items()],
             )
-            # copy analysis info onto matched tracks
-            conn.execute(
-                """UPDATE tracks SET
-                     rb_analyzed = (SELECT r.analyzed FROM rekordbox_tracks r WHERE r.rb_id = tracks.rb_id),
-                     rb_key = (SELECT r.key FROM rekordbox_tracks r WHERE r.rb_id = tracks.rb_id),
-                     rb_bpm = (SELECT r.bpm FROM rekordbox_tracks r WHERE r.rb_id = tracks.rb_id)
-                   WHERE rb_id IS NOT NULL"""
-            )
-            conn.execute(
-                """UPDATE rekordbox_tracks SET matched_track_id =
-                     (SELECT t.id FROM tracks t WHERE t.rb_id = rekordbox_tracks.rb_id LIMIT 1)"""
-            )
-        row = self.db.conn.execute(
-            "SELECT COUNT(*) AS n FROM tracks WHERE rb_id IS NOT NULL"
-        ).fetchone()
-        return row["n"]
+        return len(links)
