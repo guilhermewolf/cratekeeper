@@ -84,8 +84,7 @@ async function loadStats() {
   rbxmlBtn.hidden = !rb.not_in_rekordbox;
   rbxmlBtn.textContent = `rekordbox XML (${fmtNum(rb.not_in_rekordbox)})`;
 
-  const attention = s.mik.none + rb.not_in_rekordbox + rb.not_analyzed + s.tag_errors;
-  $("#stat-attention").textContent = fmtNum(attention);
+  $("#stat-attention").textContent = fmtNum(s.needs_attention);
   $("#stat-attention-sub").textContent =
     `no MIK, not in rekordbox, unanalyzed or unreadable`;
 
@@ -138,7 +137,8 @@ let newWindow = null;  // {since, until} of the list currently shown
 function renderNew(n) {
   $("#new-files").hidden = !n.count;
   if (!n.count) return;
-  newWindow = { since: n.since, until: n.until };
+  if (!newWindow || newWindow.since !== n.since || newWindow.until !== n.until)
+    newWindow = { since: n.since, until: n.until, mikSent: false };
   $("#new-title").textContent = `${fmtNum(n.count)} new file${n.count === 1 ? "" : "s"} since last push`;
   $("#new-sub").textContent =
     `${fmtNum(n.unanalyzed)} not analyzed in Mixed In Key · ${fmtNum(n.not_in_rekordbox)} not in rekordbox`;
@@ -169,12 +169,14 @@ async function pushNew() {
   showNewError("");
   try {
     const stats = await (await fetch("/api/new")).json();
-    if (stats.unanalyzed) {
+    // a retry (after a cancelled XML save) must not reopen the same files in MIK
+    if (stats.unanalyzed && !newWindow.mikSent) {
       // ponytail: API caps at 2000; a bigger drop gets acked with the rest unsent — loop if that happens
       qs.set("limit", 2000);
       const res = await fetch(`/api/actions/mik?${qs}`, { method: "POST" });
       const data = await res.json();
       if (!data.ok) { showNewError(`Mixed In Key: ${data.error}`); return; }
+      newWindow.mikSent = true;
       qs.delete("limit");
     }
     if (stats.not_in_rekordbox) {
@@ -193,6 +195,8 @@ async function pushNew() {
       }
     }
     await ackNew(until);
+  } catch (err) {
+    showNewError(`Push failed: ${err.message}`);
   } finally {
     btn.disabled = false;
   }
@@ -295,6 +299,8 @@ function rbBadge(t) {
   return `<span class="badge badge-good">Imported${via}</span>`;
 }
 
+let tracksSeq = 0;  // drops out-of-order responses (search debounce + scan polling)
+
 async function loadTracks() {
   const params = new URLSearchParams({
     search: state.search,
@@ -307,8 +313,22 @@ async function loadTracks() {
     page: state.page,
     per_page: state.perPage,
   });
-  const res = await fetch(`/api/tracks?${params}`);
-  const data = await res.json();
+  const seq = ++tracksSeq;
+  let data;
+  try {
+    const res = await fetch(`/api/tracks?${params}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (err) {
+    if (seq === tracksSeq) $("#result-count").textContent = `Could not load tracks (${err.message})`;
+    return;
+  }
+  if (seq !== tracksSeq) return;  // a newer request already rendered
+  const lastPage = Math.max(1, Math.ceil(data.total / data.per_page));
+  if (data.total && data.page > lastPage) {  // list shrank under us (ack, push, rescan)
+    state.page = lastPage;
+    return loadTracks();
+  }
 
   const tbody = $("#tracks-body");
   if (!data.tracks.length) {
@@ -339,7 +359,6 @@ async function loadTracks() {
   const to = Math.min(data.page * data.per_page, data.total);
   $("#result-count").textContent = data.total
     ? `${fmtNum(from)}–${fmtNum(to)} of ${fmtNum(data.total)} tracks` : "0 tracks";
-  const lastPage = Math.max(1, Math.ceil(data.total / data.per_page));
   $("#page-label").textContent = `${data.page} / ${lastPage}`;
   $("#prev").disabled = data.page <= 1;
   $("#next").disabled = data.page >= lastPage;
@@ -418,8 +437,12 @@ async function openDetail(id) {
 
   document.querySelectorAll(".copy-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(btn.dataset.path);
-      btn.textContent = "Copied";
+      try {
+        await navigator.clipboard.writeText(btn.dataset.path);
+        btn.textContent = "Copied";
+      } catch {
+        btn.textContent = "Copy failed";
+      }
       setTimeout(() => { btn.textContent = "Copy"; }, 1500);
     });
   });

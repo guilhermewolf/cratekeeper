@@ -306,6 +306,10 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             },
             "new": new_payload(),
             "tag_errors": one("SELECT COUNT(*) FROM tracks WHERE missing=0 AND tag_error IS NOT NULL"),
+            # distinct tracks with any problem (the per-category counts overlap)
+            "needs_attention": one(
+                """SELECT COUNT(*) FROM tracks WHERE missing=0 AND (mik_status='none'
+                   OR rb_id IS NULL OR rb_analyzed=0 OR tag_error IS NOT NULL)"""),
             "last_scan": state.db.get_meta("last_scan"),
             "last_rekordbox_sync": state.db.get_meta("last_rekordbox_sync"),
             "scan": state.scanner.progress.as_dict(),
@@ -362,6 +366,11 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             order_by = f"dup_group {direction}, size DESC"
         elif dupes == "meta":
             order_by = f"meta_dup_group {direction}, size DESC"
+        elif sort_col == "bpm":  # stored as tag text: "95" must sort before "128"
+            order_by = f"CAST(bpm AS REAL) {direction} NULLS LAST"
+        elif sort_col == "key":  # Camelot: 1A, 1B, 2A ... 12B (not 10A before 1A)
+            order_by = (f"CAST(key AS INTEGER) {direction} NULLS LAST,"
+                        f" key COLLATE NOCASE {direction}")
         else:
             order_by = f"{sort_col} COLLATE NOCASE {direction} NULLS LAST"
 

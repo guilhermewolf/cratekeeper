@@ -14,6 +14,7 @@ Instead it uses each app's own intake path:
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import unicodedata
 import urllib.parse
@@ -52,6 +53,16 @@ def send_to_mixed_in_key(paths: list[str], app_name: str | None = None) -> dict:
     return {"ok": True, "sent": sent, "app": app}
 
 
+KIND_NAMES = {"aif": "AIFF", "m4a": "M4A"}
+# Characters XML 1.0 forbids; ElementTree writes them anyway and rekordbox then
+# rejects the whole file because of one badly tagged track.
+XML_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
+
+
+def _xml_safe(value: str) -> str:
+    return XML_ILLEGAL_RE.sub("", value)
+
+
 def _location(path: str) -> str:
     # NFC like rekordbox's own FolderPath, so the import links back by path
     return "file://localhost" + urllib.parse.quote(unicodedata.normalize("NFC", path))
@@ -76,22 +87,25 @@ def rekordbox_xml(
     ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version=__version__, Company="cratekeeper")
     collection = ET.SubElement(root, "COLLECTION", Entries=str(len(rows)))
     for r in rows:
+        ext = Path(r["path"]).suffix.lstrip(".").lower()
         attrs = {
             "TrackID": str(r["id"]),
             "Name": r["title"] or r["filename"],
             "Artist": r["artist"] or "",
             "Album": r["album"] or "",
             "Genre": r["genre"] or "",
-            "Kind": (Path(r["path"]).suffix.lstrip(".") or "audio").upper() + " File",
+            "Kind": KIND_NAMES.get(ext, (ext or "audio").upper()) + " File",
             "Size": str(r["size"]),
             "TotalTime": str(int(r["duration"] or 0)),
             "Location": _location(r["path"]),
         }
-        if r["bpm"]:
-            attrs["AverageBpm"] = str(r["bpm"])
-        if r["key"]:
-            attrs["Tonality"] = r["key"]
-        ET.SubElement(collection, "TRACK", **attrs)
+        try:
+            attrs["AverageBpm"] = f"{float(r['bpm']):.2f}" if r["bpm"] else None
+        except ValueError:
+            attrs["AverageBpm"] = None
+        attrs["Tonality"] = r["key"] or None
+        ET.SubElement(collection, "TRACK", **{
+            k: _xml_safe(v) for k, v in attrs.items() if v is not None})
 
     playlists = ET.SubElement(root, "PLAYLISTS")
     node_root = ET.SubElement(playlists, "NODE", Type="0", Name="ROOT", Count="1")

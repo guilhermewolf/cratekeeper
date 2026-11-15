@@ -140,3 +140,32 @@ def test_new_files_flow(config, library):
     assert client.post("/api/new/ack", json={"until": new["until"]}).json()["count"] == 0
     client.post("/api/new/ack", json={"until": 0})
     assert client.get("/api/new").json()["count"] == 0
+
+
+def test_xml_strips_control_chars_and_bpm_key_sort_numerically(config, library):
+    from mutagen.id3 import ID3, TBPM, TKEY
+
+    for name, bpm, key in (("a.mp3", "128", "10A"), ("b.mp3", "95", "1A"), ("c.mp3", "174", "2B")):
+        f = library / name
+        make_silence_mp3(f)
+        tag_basic(f, "Art\x01ist", name)
+        id3 = ID3(f)
+        id3.add(TBPM(encoding=3, text=[bpm]))
+        id3.add(TKEY(encoding=3, text=[key]))
+        id3.save(f)
+
+    client = make_client(config)
+    Scanner(config, client.app.state.cratekeeper.db).scan()
+
+    from xml.etree import ElementTree as ET
+
+    root = ET.fromstring(client.get("/api/export/rekordbox.xml").content)  # parses
+    assert {t.get("Artist") for t in root.findall(".//COLLECTION/TRACK")} == {"Artist"}
+    assert {t.get("AverageBpm") for t in root.findall(".//COLLECTION/TRACK")} == {
+        "95.00", "128.00", "174.00"}
+
+    by = lambda col: [t[col] for t in client.get(  # noqa: E731
+        "/api/tracks", params={"sort": col}).json()["tracks"]]
+    assert by("bpm") == ["95", "128", "174"]
+    assert by("key") == ["1A", "2B", "10A"]
+    assert client.get("/api/stats").json()["needs_attention"] == 3
