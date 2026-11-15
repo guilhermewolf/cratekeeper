@@ -41,6 +41,20 @@
     <p class="setup-error" id="setup-error" hidden></p>
   </section>
 
+  <section class="setup" id="update-banner" hidden>
+    <div class="setup-text">
+      <h2 id="update-title"></h2>
+      <p id="update-sub"></p>
+    </div>
+    <div class="setup-form">
+      <a class="btn btn-small" id="update-notes" target="_blank" rel="noopener" hidden>Release notes</a>
+      <button type="button" class="btn btn-primary" id="btn-update-install" hidden>Install update</button>
+      <button type="button" class="btn btn-primary" id="btn-update-restart" hidden>Restart to update</button>
+      <button type="button" class="btn btn-small" id="btn-update-later">Later</button>
+    </div>
+    <p class="setup-error" id="update-error" hidden></p>
+  </section>
+
   <section class="setup" id="new-files" hidden>
     <div class="setup-text">
       <h2 id="new-title"></h2>
@@ -186,7 +200,12 @@
 
 <footer class="pagefoot">
   <span id="footer-sync"></span>
-  <a href="/docs" target="_blank" rel="noopener">API docs</a>
+  <span class="foot-right">
+    <label><input type="checkbox" id="opt-check-updates"> Check for updates</label>
+    <label id="opt-auto-update-wrap" hidden><input type="checkbox" id="opt-auto-update"> Install updates automatically</label>
+    <span id="footer-version"></span>
+    <a href="/docs" target="_blank" rel="noopener">API docs</a>
+  </span>
 </footer>
 
 <script src="/static/app.js"></script>

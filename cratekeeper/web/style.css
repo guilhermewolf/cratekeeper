@@ -212,6 +212,8 @@ tbody tr.selected td { background: var(--surface-2); }
   color: var(--text-muted); font-size: 12px;
 }
 .pagefoot a { color: var(--text-muted); }
+.foot-right { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.foot-right label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 
 /* ---- track detail modal ---- */
 .overlay {

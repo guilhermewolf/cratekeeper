@@ -28,6 +28,7 @@ DEFAULT_DATA_DIR = Path.home() / ".local" / "share" / "cratekeeper"
 _WRITABLE_KEYS = (
     "library_path", "data_dir", "host", "port", "rescan_interval",
     "rekordbox_poll_interval", "extensions", "ignore_dirs",
+    "check_updates", "auto_update",
 )
 
 
@@ -46,6 +47,10 @@ class Config:
     extensions: set[str] = field(default_factory=lambda: set(AUDIO_EXTENSIONS))
     # Directories (relative names) skipped during scans.
     ignore_dirs: set[str] = field(default_factory=lambda: {".stfolder", ".stversions", ".sync"})
+    # Ask GitHub for new releases (a few times a day) and show a banner.
+    check_updates: bool = True
+    # Desktop app only: download + verify new releases and install them on quit.
+    auto_update: bool = False
     # True once a config file with a library_path exists. Until then the
     # server does not auto-scan anything and the dashboard asks for a folder.
     configured: bool = False
@@ -90,6 +95,8 @@ def load_config() -> Config:
                           for e in raw["extensions"]}
     if "ignore_dirs" in raw:
         cfg.ignore_dirs = set(raw["ignore_dirs"])
+    cfg.check_updates = bool(raw.get("check_updates", cfg.check_updates))
+    cfg.auto_update = bool(raw.get("auto_update", cfg.auto_update))
     cfg.data_dir.mkdir(parents=True, exist_ok=True)
     cfg.log_dir.mkdir(parents=True, exist_ok=True)
     return cfg
@@ -110,12 +117,13 @@ def _toml_value(value) -> str:
     return json.dumps(str(value), ensure_ascii=False)
 
 
-def write_config(library_path: Path, **overrides) -> Path:
-    """Record the library path (and any other known keys), preserving the
-    other settings already in the file."""
+def write_config(library_path: Path | None, **overrides) -> Path:
+    """Record the library path (None: leave it as is) and any other known
+    keys, preserving the other settings already in the file."""
     path = config_path()
     raw = _read_raw(path)
-    raw["library_path"] = str(library_path)
+    if library_path is not None:
+        raw["library_path"] = str(library_path)
     for key, value in overrides.items():
         if key not in _WRITABLE_KEYS:
             raise ValueError(f"unknown config key: {key}")

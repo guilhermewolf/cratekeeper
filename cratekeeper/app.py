@@ -109,6 +109,24 @@ class DesktopApi:
     def __init__(self):
         self.window = None  # set once the window exists
         self.base_url = ""
+        self.lifecycle = None
+
+    def restart_to_update(self) -> dict:
+        """Quit so the staged update is swapped in, then relaunch it."""
+        if not self._trusted():
+            return {"ok": False, "error": "untrusted page"}
+        req = urllib.request.Request(f"{self.base_url}/api/update/restart", method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                ok = json.load(resp).get("ok")
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)[:200]}
+        if not ok:
+            return {"ok": False, "error": "no update is ready"}
+        if self.lifecycle is not None:
+            self.lifecycle.quitting = True
+        self.window.destroy()
+        return {"ok": True}
 
     def _trusted(self) -> bool:
         """pywebview exposes this object to whatever page the window shows;
@@ -247,6 +265,11 @@ def main(argv: list[str] | None = None) -> int:
     smoke = os.environ.get(SMOKE_ENV) == "1"
     log.info("cratekeeper %s desktop starting (frozen=%s)", __version__, getattr(sys, "frozen", False))
 
+    # Self-update may only replace the bundle from this (window) process.
+    from . import updates
+
+    updates.IN_DESKTOP_APP = True
+
     # 1. Server: attach to a running one, else start our own.
     server: ServerThread | None = None
     port = config.port
@@ -274,6 +297,7 @@ def main(argv: list[str] | None = None) -> int:
         text_select=True,
     )
     api.window = window
+    api.lifecycle = lifecycle
 
     def on_closing():
         # Red button / ⌘W: hide instead of quit so the watcher keeps running.

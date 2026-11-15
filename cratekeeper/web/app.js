@@ -725,7 +725,86 @@ document.querySelectorAll(".tile-clickable").forEach((tile) => {
 
 /* ---- boot + poll ---- */
 
+/* ---- updates (GitHub releases) ---- */
+
+function storageGet(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function storageSet(key, value) {
+  try { localStorage.setItem(key, value); } catch { /* private mode etc. */ }
+}
+
+let updateInfo = null;
+let updatePoll = null;
+
+async function loadUpdate() {
+  let u;
+  try {
+    u = await (await fetch("/api/update")).json();
+  } catch {
+    return;
+  }
+  updateInfo = u;
+  $("#opt-check-updates").checked = u.check_updates;
+  $("#opt-auto-update").checked = u.auto_update;
+  $("#opt-auto-update-wrap").hidden = !u.can_install;
+  $("#footer-version").textContent = `v${u.current}`;
+
+  const dismissed = storageGet("cratekeeper.updateDismissed") === u.latest;
+  const ready = u.state === "ready";
+  $("#update-banner").hidden = !(u.available && (!dismissed || ready));
+  $("#update-title").textContent = ready
+    ? `cratekeeper ${u.latest} is ready — restart to finish updating`
+    : `cratekeeper ${u.latest} is available (you have ${u.current})`;
+  $("#update-sub").textContent = u.state === "downloading"
+    ? "Downloading and verifying the update…"
+    : ready ? (desktop() ? "Or keep working: it installs the next time you quit." : "Quit cratekeeper to finish.")
+    : u.can_install ? "Install it now, or turn on automatic updates at the bottom of the page."
+    : "Download it from the release page.";
+  const notes = $("#update-notes");
+  notes.hidden = !u.url;
+  if (u.url) notes.href = u.url;
+  $("#btn-update-install").hidden = !(u.can_install && ["idle", "error"].includes(u.state));
+  $("#btn-update-restart").hidden = !(ready && desktop());
+  $("#update-error").hidden = !u.error;
+  $("#update-error").textContent = u.error ?? "";
+
+  clearTimeout(updatePoll);
+  if (u.state === "downloading") updatePoll = setTimeout(loadUpdate, 2000);
+}
+
+$("#btn-update-install").addEventListener("click", async () => {
+  await fetch("/api/update/install", { method: "POST" });
+  loadUpdate();
+});
+$("#btn-update-restart").addEventListener("click", async () => {
+  const result = await desktop()?.restart_to_update();
+  if (result && !result.ok) {
+    $("#update-error").textContent = result.error;
+    $("#update-error").hidden = false;
+  }
+});
+$("#btn-update-later").addEventListener("click", () => {
+  if (updateInfo?.latest) storageSet("cratekeeper.updateDismissed", updateInfo.latest);
+  $("#update-banner").hidden = true;
+});
+
+async function saveUpdateSettings(changes) {
+  await fetch("/api/update/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  if (changes.check_updates) await fetch("/api/update/check", { method: "POST" });
+  loadUpdate();
+}
+$("#opt-check-updates").addEventListener("change", (e) =>
+  saveUpdateSettings({ check_updates: e.target.checked }));
+$("#opt-auto-update").addEventListener("change", (e) =>
+  saveUpdateSettings({ auto_update: e.target.checked }));
+
 async function refresh() {
+  loadUpdate();
   try {
     const scanning = await loadStats();
     // Poll faster while a scan is running so the tiles track progress.

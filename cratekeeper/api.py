@@ -18,6 +18,7 @@ from .config import Config, config_path, load_config, write_config
 from .db import Database
 from .rekordbox import RekordboxSync
 from .scanner import Scanner
+from .updates import Updater
 from .watcher import LibraryWatcher
 
 log = logging.getLogger("cratekeeper.api")
@@ -30,6 +31,11 @@ SORTABLE = {
 
 class ConfigUpdate(BaseModel):
     library_path: str
+
+
+class UpdateSettings(BaseModel):
+    check_updates: bool | None = None
+    auto_update: bool | None = None
 
 
 class NewAck(BaseModel):
@@ -103,6 +109,7 @@ class AppState:
         self.scanner = Scanner(config, self.db)
         self.rekordbox = RekordboxSync(self.db)
         self.watcher = LibraryWatcher(config, self.db)
+        self.updater = Updater(config)
         self._scan_lock = threading.Lock()
         self._state_lock = threading.Lock()  # guards watcher swaps / library changes
         self._watching = False
@@ -172,6 +179,10 @@ class AppState:
                     self.rekordbox.sync()
                 except Exception:
                     log.exception("rekordbox poll failed")
+                try:
+                    self.updater.maybe_check()  # no-op unless due and enabled
+                except Exception:
+                    log.exception("update check failed")
                 time.sleep(self.config.rekordbox_poll_interval)
 
         threading.Thread(target=loop, name="cratekeeper-periodic", daemon=True).start()
@@ -297,6 +308,35 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         if since is None or body.until > since:
             state.db.set_meta("new_cutoff", str(body.until))
         return new_payload()
+
+    # ---- updates (GitHub releases) -----------------------------------------
+
+    @app.get("/api/update")
+    def update_status():
+        return state.updater.as_dict()
+
+    @app.post("/api/update/check")
+    def update_check():
+        return state.updater.check()
+
+    @app.post("/api/update/install")
+    def update_install():
+        """Desktop app only: download, verify and stage the new release."""
+        return state.updater.install()
+
+    @app.post("/api/update/restart")
+    def update_restart():
+        """Mark the staged update for relaunch; the desktop app quits next."""
+        return {"ok": state.updater.request_restart()}
+
+    @app.put("/api/update/settings")
+    def update_settings(body: UpdateSettings):
+        changes = {k: v for k, v in body.model_dump().items() if v is not None}
+        for key, value in changes.items():
+            setattr(config, key, value)
+        if changes:
+            write_config(None, **changes)
+        return state.updater.as_dict()
 
     # ---- stats -----------------------------------------------------------
 
