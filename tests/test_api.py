@@ -197,3 +197,48 @@ def test_selection_actions(config, library, monkeypatch):
     assert len(root.findall(".//COLLECTION/TRACK")) == 2
     assert root.find(".//NODE[@Type='1']").get("Name") == "cratekeeper — selection"
     assert client.get("/api/export/rekordbox.xml", params={"ids": "1;DROP"}).status_code == 422
+
+
+def test_missing_view_forget_and_relocate(config, library):
+    a = library / "keep.mp3"
+    gone = library / "gone.mp3"
+    make_silence_mp3(a)
+    make_silence_mp3(gone)
+    tag_basic(gone, "Gone", "Song")
+    client = make_client(config)
+    db = client.app.state.cratekeeper.db
+    Scanner(config, db).scan()
+    gone.unlink()
+    Scanner(config, db).scan()
+
+    # relocate: rekordbox knows keep.mp3 at an old location that no longer exists
+    db.conn.execute(
+        """INSERT INTO rekordbox_tracks (rb_id, folder_path, filename, file_size, file_exists)
+           VALUES ('9', '/old/keep.mp3', 'keep.mp3', ?, 0)""", (a.stat().st_size,))
+    db.conn.commit()
+    client.app.state.cratekeeper.rekordbox._link_tracks()
+    rows = client.get("/api/tracks", params={"rekordbox": "relocate"}).json()["tracks"]
+    assert [r["filename"] for r in rows] == ["keep.mp3"]
+    assert client.get("/api/stats").json()["rekordbox"]["relocate"] == 1
+
+    missing = client.get("/api/tracks", params={"issue": "missing"}).json()
+    assert [r["filename"] for r in missing["tracks"]] == ["gone.mp3"]
+    assert client.post("/api/missing/forget").json() == {"forgotten": 1}
+    assert client.get("/api/tracks", params={"issue": "missing"}).json()["total"] == 0
+    assert client.get("/api/tracks").json()["total"] == 1
+
+
+def test_database_adds_columns_to_old_schema(tmp_path):
+    import sqlite3
+
+    from cratekeeper.db import Database
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("CREATE TABLE rekordbox_tracks (rb_id TEXT PRIMARY KEY, folder_path TEXT,"
+                " filename TEXT, file_size INTEGER, title TEXT, artist TEXT, analyzed INTEGER,"
+                " key TEXT, bpm REAL, matched_track_id INTEGER)")
+    old.commit()
+    old.close()
+    cols = {r["name"] for r in Database(path).conn.execute("PRAGMA table_info(rekordbox_tracks)")}
+    assert "file_exists" in cols

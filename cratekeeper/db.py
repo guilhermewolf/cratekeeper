@@ -65,7 +65,8 @@ CREATE TABLE IF NOT EXISTS rekordbox_tracks (
     analyzed INTEGER,
     key TEXT,
     bpm REAL,
-    matched_track_id INTEGER
+    matched_track_id INTEGER,
+    file_exists INTEGER          -- rekordbox's FolderPath exists on disk
 );
 CREATE INDEX IF NOT EXISTS idx_rb_path ON rekordbox_tracks(folder_path);
 CREATE INDEX IF NOT EXISTS idx_rb_name_size ON rekordbox_tracks(filename, file_size);
@@ -77,6 +78,12 @@ CREATE TABLE IF NOT EXISTS meta (
 """
 
 
+# Columns added after the first release: (table, column, declaration).
+ADDED_COLUMNS = [
+    ("rekordbox_tracks", "file_exists", "INTEGER"),
+]
+
+
 class Database:
     def __init__(self, path: Path):
         self.path = path
@@ -84,6 +91,11 @@ class Database:
         # Initialize schema once.
         with self.conn:
             self.conn.executescript(SCHEMA)
+            # CREATE TABLE IF NOT EXISTS never alters an existing table
+            for table, column, decl in ADDED_COLUMNS:
+                cols = {r["name"] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if column not in cols:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     @property
     def conn(self) -> sqlite3.Connection:

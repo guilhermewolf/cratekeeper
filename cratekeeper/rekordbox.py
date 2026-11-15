@@ -81,9 +81,10 @@ class RekordboxSync:
             conn.execute("DELETE FROM rekordbox_tracks")
             conn.executemany(
                 """INSERT OR REPLACE INTO rekordbox_tracks
-                   (rb_id, folder_path, filename, file_size, title, artist, analyzed, key, bpm)
+                   (rb_id, folder_path, filename, file_size, title, artist, analyzed, key, bpm,
+                    file_exists)
                    VALUES (:rb_id, :folder_path, :filename, :file_size, :title, :artist,
-                           :analyzed, :key, :bpm)""",
+                           :analyzed, :key, :bpm, :file_exists)""",
                 rows,
             )
         matched = self._link_tracks()
@@ -126,6 +127,8 @@ class RekordboxSync:
                     "analyzed": 1 if getattr(c, "Analysed", 0) else 0,
                     "key": key,
                     "bpm": bpm,
+                    # rekordbox shows these as missing; we may know where they went
+                    "file_exists": 1 if os.path.exists(folder) else 0,
                 })
         finally:
             try:

@@ -262,3 +262,5 @@ tbody tr.selected td { background: var(--surface-2); }
   .library-path { display: none; }
   #search { width: 100%; }
 }
+
+.detail-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-secondary); }

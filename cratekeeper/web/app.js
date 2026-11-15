@@ -6,6 +6,7 @@ const state = {
   rekordbox: "",
   dupes: "",
   added: "",
+  issue: "",
   sort: "artist",
   order: "asc",
   page: 1,
@@ -69,7 +70,8 @@ async function loadStats() {
     `${fmtNum(rb.in_rekordbox)} <span class="pct">${pct(rb.in_rekordbox, s.total)}</span>`;
   $("#stat-rb-sub").textContent = rb.available === false
     ? `rekordbox db unavailable: ${rb.error ?? "not found"}`
-    : `${fmtNum(rb.not_in_rekordbox)} not imported · ${fmtNum(rb.not_analyzed)} imported but unanalyzed`;
+    : `${fmtNum(rb.not_in_rekordbox)} not imported · ${fmtNum(rb.not_analyzed)} imported but unanalyzed`
+      + (rb.relocate ? ` · ${fmtNum(rb.relocate)} to relocate` : "");
   renderProportion("#rb-bar", s.total, [[rb.in_rekordbox, "var(--series-1)"]]);
 
   const d = s.duplicates;
@@ -308,6 +310,7 @@ async function loadTracks() {
     rekordbox: state.rekordbox,
     dupes: state.dupes,
     added: state.added,
+    issue: state.issue,
     sort: state.sort,
     order: state.order,
     page: state.page,
@@ -366,8 +369,31 @@ async function loadTracks() {
   $("#page-label").textContent = `${data.page} / ${lastPage}`;
   $("#prev").disabled = data.page <= 1;
   $("#next").disabled = data.page >= lastPage;
+  const forget = $("#btn-forget");
+  forget.hidden = !(state.issue === "missing" && data.total);
+  forget.dataset.armed = "";
+  forget.textContent = `Forget ${fmtNum(data.total)} missing file${data.total === 1 ? "" : "s"}`;
   renderSelection();
 }
+
+// Two-step instead of confirm(): native dialogs are unreliable in the webview.
+$("#btn-forget").addEventListener("click", async () => {
+  const btn = $("#btn-forget");
+  if (!btn.dataset.armed) {
+    btn.dataset.armed = "1";
+    btn.textContent = "Click again to forget them (files on disk are not touched)";
+    setTimeout(() => { if (btn.dataset.armed) loadTracks(); }, 5000);
+    return;
+  }
+  btn.disabled = true;
+  try {
+    await fetch("/api/missing/forget", { method: "POST" });
+  } finally {
+    btn.disabled = false;
+    await loadStats();
+    loadTracks();
+  }
+});
 
 /* ---- selection (persists across pages and filters) ---- */
 
@@ -517,8 +543,11 @@ async function openDetail(id) {
       ${sameSong.map((d) => pathRow(d)).join("")}</div>`;
   }
   if (t.rekordbox && t.rekordbox.folder_path !== t.path) {
-    html += `<div class="detail-section"><h3>rekordbox location</h3>
-      <div class="path-row"><code>${esc(t.rekordbox.folder_path)}</code></div></div>`;
+    const gone = t.rekordbox.file_exists === 0;
+    html += `<div class="detail-section"><h3>rekordbox location${gone ? " — file gone" : ""}</h3>
+      <div class="path-row"><code>${esc(t.rekordbox.folder_path)}</code></div>
+      ${gone ? `<p class="detail-hint">rekordbox shows this track as missing. In rekordbox, right-click it →
+        Relocate, and pick the file path above.</p>` : ""}</div>`;
   }
 
   $("#detail-body").innerHTML = html;

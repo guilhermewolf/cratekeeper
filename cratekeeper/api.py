@@ -36,6 +36,11 @@ class NewAck(BaseModel):
     until: float
 
 
+# Present tracks rekordbox knows under an old location that no longer exists:
+# the user can point rekordbox's "Relocate" at the track's current path.
+RELOCATE_SQL = ("rb_match = 'name_size' AND rb_id IN"
+                " (SELECT rb_id FROM rekordbox_tracks WHERE file_exists = 0)")
+
 MAX_SELECTION = 5000  # well under SQLite's bound-parameter limit
 IDS_PATTERN = r"^(\d{1,12}(,\d{1,12})*)?$"  # count checked in code (bounded regex is huge)
 
@@ -299,6 +304,10 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
                     "SELECT COUNT(*) FROM tracks WHERE missing=0 AND rb_id IS NOT NULL AND rb_analyzed=0"),
                 "only_in_rekordbox": one(
                     "SELECT COUNT(*) FROM rekordbox_tracks WHERE matched_track_id IS NULL"),
+                # rekordbox entries whose file is gone ...
+                "file_gone": one("SELECT COUNT(*) FROM rekordbox_tracks WHERE file_exists = 0"),
+                # ... and of those, the ones whose file we found elsewhere
+                "relocate": one(f"SELECT COUNT(*) FROM tracks WHERE missing=0 AND {RELOCATE_SQL}"),
             },
             "duplicates": {
                 "exact_groups": one("SELECT COUNT(DISTINCT dup_group) FROM tracks WHERE dup_group IS NOT NULL"),
@@ -329,16 +338,19 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     def tracks(
         search: str = "",
         mik: str = Query("", pattern="^(|confirmed|likely|none|analyzed)$"),
-        rekordbox: str = Query("", pattern="^(|in|out|unanalyzed)$"),
+        rekordbox: str = Query("", pattern="^(|in|out|unanalyzed|relocate)$"),
         dupes: str = Query("", pattern="^(|exact|meta)$"),
         errors: bool = False,
+        issue: str = Query("", pattern="^(|errors|missing)$"),
         added: str = Query("", pattern="^(|new)$"),
         sort: str = "artist",
         order: str = Query("asc", pattern="^(asc|desc)$"),
         page: int = Query(1, ge=1),
         per_page: int = Query(100, ge=1, le=500),
     ):
-        clause, params = track_filter(search, mik, rekordbox, dupes, errors, added)
+        clause, params = track_filter(
+            search, mik, rekordbox, dupes, errors or issue == "errors", added,
+            missing=issue == "missing")
         sort_col = sort if sort in SORTABLE else "artist"
         direction = "DESC" if order == "desc" else "ASC"
         if dupes == "exact":
@@ -372,10 +384,12 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
     def track_filter(
         search: str = "", mik: str = "", rekordbox: str = "", dupes: str = "",
         errors: bool = False, added: str = "", ids: list[int] | None = None,
+        missing: bool = False,
     ) -> tuple[str, list]:
         """WHERE clause shared by the track list and the actions/exports that
-        operate on a filter or a selection. Inputs are already validated."""
-        where = ["missing = 0"]
+        operate on a filter or a selection. Inputs are already validated.
+        `missing` lists files that vanished from disk instead of present ones."""
+        where = ["missing = 1" if missing else "missing = 0"]
         params: list = []
         if ids is not None:
             where.append(f"id IN ({','.join('?' * len(ids))})" if ids else "0")
@@ -395,6 +409,8 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             where.append("rb_id IS NULL")
         elif rekordbox == "unanalyzed":
             where.append("rb_id IS NOT NULL AND rb_analyzed = 0")
+        elif rekordbox == "relocate":
+            where.append(RELOCATE_SQL)
         if dupes == "exact":
             where.append("dup_group IS NOT NULL")
         elif dupes == "meta":
@@ -455,6 +471,15 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         return {"kind": kind, "groups": list(groups.values())}
 
     # ---- rekordbox-only tracks ----------------------------------------------
+
+    @app.post("/api/missing/forget")
+    def forget_missing():
+        """Drop the database rows of files that vanished from disk. Only
+        cratekeeper's own index changes — nothing on disk is touched."""
+        with state.db.conn:
+            n = state.db.conn.execute("DELETE FROM tracks WHERE missing = 1").rowcount
+        state.rekordbox._link_tracks()  # matched_track_id may point at a dropped row
+        return {"forgotten": n}
 
     @app.get("/api/rekordbox/orphans")
     def rekordbox_orphans():

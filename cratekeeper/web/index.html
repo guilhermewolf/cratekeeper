@@ -101,6 +101,14 @@
       <button class="chip" data-group="rekordbox" data-value="in">Imported</button>
       <button class="chip" data-group="rekordbox" data-value="out">Missing</button>
       <button class="chip" data-group="rekordbox" data-value="unanalyzed">Not analyzed</button>
+      <button class="chip" data-group="rekordbox" data-value="relocate"
+              title="rekordbox lists these at an old location that no longer exists — relocate them in rekordbox to the path shown in the track details">Relocate</button>
+    </div>
+    <div class="chip-group" role="group" aria-label="issues filter">
+      <span class="chip-group-label">Issues</span>
+      <button class="chip active" data-group="issue" data-value="">All</button>
+      <button class="chip" data-group="issue" data-value="errors">Tag errors</button>
+      <button class="chip" data-group="issue" data-value="missing">Missing files</button>
     </div>
     <div class="chip-group" role="group" aria-label="duplicates filter">
       <span class="chip-group-label">Dupes</span>
@@ -143,6 +151,8 @@
     </table>
     <div class="table-footer">
       <span id="result-count"></span>
+      <button type="button" class="btn btn-small" id="btn-forget" hidden
+              title="Remove these from cratekeeper's index. Nothing on disk is touched.">Forget missing files</button>
       <div class="pager">
         <button id="prev" class="btn btn-small">‹ Prev</button>
         <span id="page-label"></span>
