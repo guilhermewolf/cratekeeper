@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import __version__
 from .config import Config, config_path, load_config, write_config
@@ -34,6 +34,14 @@ class ConfigUpdate(BaseModel):
 
 class NewAck(BaseModel):
     until: float
+
+
+MAX_SELECTION = 5000  # well under SQLite's bound-parameter limit
+IDS_PATTERN = r"^(\d{1,12}(,\d{1,12})*)?$"  # count checked in code (bounded regex is huge)
+
+
+class Selection(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=MAX_SELECTION)
 
 
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "[::1]", "::1"}
@@ -330,38 +338,9 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
         page: int = Query(1, ge=1),
         per_page: int = Query(100, ge=1, le=500),
     ):
-        where = ["missing = 0"]
-        params: list = []
-        if search:
-            where.append("(filename LIKE ? OR artist LIKE ? OR title LIKE ? OR album LIKE ?)")
-            like = f"%{search}%"
-            params += [like, like, like, like]
-        if mik == "analyzed":
-            where.append("mik_status IN ('confirmed', 'likely')")
-        elif mik:
-            where.append("mik_status = ?")
-            params.append(mik)
-        if rekordbox == "in":
-            where.append("rb_id IS NOT NULL")
-        elif rekordbox == "out":
-            where.append("rb_id IS NULL")
-        elif rekordbox == "unanalyzed":
-            where.append("rb_id IS NOT NULL AND rb_analyzed = 0")
-        if dupes == "exact":
-            where.append("dup_group IS NOT NULL")
-        elif dupes == "meta":
-            where.append("meta_dup_group IS NOT NULL")
-        if errors:
-            where.append("tag_error IS NOT NULL")
-        if added == "new":
-            since = new_since()
-            where.append("first_seen > ?" if since is not None else "0")
-            if since is not None:
-                params.append(since)
-
+        clause, params = track_filter(search, mik, rekordbox, dupes, errors, added)
         sort_col = sort if sort in SORTABLE else "artist"
         direction = "DESC" if order == "desc" else "ASC"
-        clause = " AND ".join(where)
         if dupes == "exact":
             order_by = f"dup_group {direction}, size DESC"
         elif dupes == "meta":
@@ -389,6 +368,45 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             "per_page": per_page,
             "tracks": [dict(r) for r in rows],
         }
+
+    def track_filter(
+        search: str = "", mik: str = "", rekordbox: str = "", dupes: str = "",
+        errors: bool = False, added: str = "", ids: list[int] | None = None,
+    ) -> tuple[str, list]:
+        """WHERE clause shared by the track list and the actions/exports that
+        operate on a filter or a selection. Inputs are already validated."""
+        where = ["missing = 0"]
+        params: list = []
+        if ids is not None:
+            where.append(f"id IN ({','.join('?' * len(ids))})" if ids else "0")
+            params += ids
+        if search:
+            where.append("(filename LIKE ? OR artist LIKE ? OR title LIKE ? OR album LIKE ?)")
+            like = f"%{search}%"
+            params += [like, like, like, like]
+        if mik == "analyzed":
+            where.append("mik_status IN ('confirmed', 'likely')")
+        elif mik:
+            where.append("mik_status = ?")
+            params.append(mik)
+        if rekordbox == "in":
+            where.append("rb_id IS NOT NULL")
+        elif rekordbox == "out":
+            where.append("rb_id IS NULL")
+        elif rekordbox == "unanalyzed":
+            where.append("rb_id IS NOT NULL AND rb_analyzed = 0")
+        if dupes == "exact":
+            where.append("dup_group IS NOT NULL")
+        elif dupes == "meta":
+            where.append("meta_dup_group IS NOT NULL")
+        if errors:
+            where.append("tag_error IS NOT NULL")
+        if added == "new":
+            since = new_since()
+            where.append("first_seen > ?" if since is not None else "0")
+            if since is not None:
+                params.append(since)
+        return " AND ".join(where), params
 
     @app.get("/api/tracks/{track_id}")
     def track_detail(track_id: int):
@@ -487,19 +505,44 @@ def create_app(config: Config | None = None, background: bool = True) -> FastAPI
             return {"ok": True, "sent": 0}
         return actions.send_to_mixed_in_key([r["path"] for r in rows])
 
+    @app.post("/api/actions/mik/selection")
+    def send_selection_to_mik(body: Selection):
+        """Open the selected tracks in Mixed In Key, analyzed or not."""
+        from . import actions
+
+        clause, params = track_filter(ids=body.ids)
+        rows = state.db.conn.execute(
+            f"SELECT path FROM tracks WHERE {clause} ORDER BY artist, title", params
+        ).fetchall()
+        if not rows:
+            return {"ok": True, "sent": 0}
+        return actions.send_to_mixed_in_key([r["path"] for r in rows])
+
     @app.get("/api/export/rekordbox.xml")
-    def export_rekordbox_xml(since: float | None = None, until: float | None = None):
-        """rekordbox XML of every track missing from the collection (with
-        since/until: only the new files first seen in that window).
+    def export_rekordbox_xml(
+        since: float | None = None,
+        until: float | None = None,
+        ids: str = Query("", pattern=IDS_PATTERN),
+    ):
+        """rekordbox XML of every track missing from the collection; with
+        since/until only the new files first seen in that window; with ids a
+        playlist of exactly those tracks (imported or not).
         Import it via rekordbox Preferences > Advanced > Database > rekordbox xml."""
         from fastapi.responses import Response
 
         from . import actions
 
         window = added_window(since, until)
-        if window:
+        if ids:
+            id_list = [int(i) for i in ids.split(",")]
+            if len(id_list) > MAX_SELECTION:
+                raise HTTPException(422, f"at most {MAX_SELECTION} ids")
+            clause, params = track_filter(ids=id_list)
+            xml = actions.rekordbox_xml(state.db, clause, params, "cratekeeper — selection")
+        elif window:
             xml = actions.rekordbox_xml(
-                state.db, "cratekeeper — new files missing from rekordbox", added=window)
+                state.db, "missing = 0 AND rb_id IS NULL AND first_seen > ? AND first_seen <= ?",
+                list(window), "cratekeeper — new files missing from rekordbox")
         else:
             xml = actions.rekordbox_xml(state.db)
         return Response(

@@ -151,10 +151,14 @@ class DesktopApi:
         subprocess.Popen(["open", url])
         return True
 
-    def save_rekordbox_xml(self, since: float | None = None, until: float | None = None) -> dict:
+    def save_rekordbox_xml(
+        self, since: float | None = None, until: float | None = None,
+        ids: list[int] | None = None,
+    ) -> dict:
         """Fetch the rekordbox XML from the server and save it where the
         user picks (native save dialog), then reveal it. With since/until:
-        only the new files first seen in that window."""
+        only the new files first seen in that window; with ids: a playlist
+        of exactly those tracks."""
         if not self._trusted():
             return {"ok": False, "error": "untrusted page"}
         import webview
@@ -168,7 +172,9 @@ class DesktopApi:
             return {"ok": False, "cancelled": True}
         target_path = Path(target[0] if isinstance(target, (list, tuple)) else target)
         query = ""
-        if since is not None and until is not None:
+        if ids:
+            query = "?" + urllib.parse.urlencode({"ids": ",".join(str(int(i)) for i in ids)})
+        elif since is not None and until is not None:
             query = "?" + urllib.parse.urlencode({"since": float(since), "until": float(until)})
         try:
             with urllib.request.urlopen(

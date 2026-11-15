@@ -70,18 +70,18 @@ def _location(path: str) -> str:
 
 def rekordbox_xml(
     db: Database,
+    where: str = "missing = 0 AND rb_id IS NULL",
+    params: list | tuple = (),
     playlist_name: str = "cratekeeper — missing from rekordbox",
-    added: tuple[float, float] | None = None,
 ) -> bytes:
-    """Build a rekordbox XML of every non-missing track not in the collection,
-    optionally only those first seen in the (since, until] window."""
-    sql = """SELECT id, path, filename, title, artist, album, genre, bpm, key, size, duration
-             FROM tracks WHERE missing = 0 AND rb_id IS NULL"""
-    params: list = []
-    if added:
-        sql += " AND first_seen > ? AND first_seen <= ?"
-        params += list(added)
-    rows = db.conn.execute(sql + " ORDER BY artist, title", params).fetchall()
+    """Build a rekordbox XML (collection + one playlist) of the tracks matching
+    `where` — by default every present track not in the collection. `where`
+    is trusted SQL from api.py; values go through `params`."""
+    rows = db.conn.execute(
+        f"""SELECT id, path, filename, title, artist, album, genre, bpm, key, size, duration
+            FROM tracks WHERE {where} ORDER BY artist, title""",
+        list(params),
+    ).fetchall()
 
     root = ET.Element("DJ_PLAYLISTS", Version="1.0.0")
     ET.SubElement(root, "PRODUCT", Name="cratekeeper", Version=__version__, Company="cratekeeper")

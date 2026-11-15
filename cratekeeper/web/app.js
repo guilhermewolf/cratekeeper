@@ -330,9 +330,10 @@ async function loadTracks() {
     return loadTracks();
   }
 
+  pageIds = data.tracks.map((t) => t.id);
   const tbody = $("#tracks-body");
   if (!data.tracks.length) {
-    tbody.innerHTML = `<tr class="empty-row"><td colspan="9">No tracks match these filters.</td></tr>`;
+    tbody.innerHTML = `<tr class="empty-row"><td colspan="10">No tracks match these filters.</td></tr>`;
   } else {
     let lastGroup = null;
     tbody.innerHTML = data.tracks.map((t) => {
@@ -341,7 +342,10 @@ async function loadTracks() {
       const isLead = grp !== null && grp !== lastGroup;
       if (grp !== null) lastGroup = grp;
       const dupTag = grp !== null && isLead ? `<span class="dup-tag">group ${grp}</span>` : "";
-      return `<tr class="${isLead ? "dup-lead" : ""}" data-id="${t.id}" title="${esc(t.path)}">
+      const sel = selected.has(t.id);
+      return `<tr class="${isLead ? "dup-lead" : ""}${sel ? " selected" : ""}" data-id="${t.id}" title="${esc(t.path)}">
+        <td class="sel"><input type="checkbox" class="row-sel" data-id="${t.id}" ${sel ? "checked" : ""}
+          aria-label="Select ${esc(t.artist ?? "")} ${esc(t.title ?? t.filename)}"></td>
         <td class="primary">${esc(t.artist ?? "—")}${dupTag}</td>
         <td>${esc(t.title ?? t.filename)}</td>
         <td class="num">${esc(t.key ?? "")}</td>
@@ -362,7 +366,92 @@ async function loadTracks() {
   $("#page-label").textContent = `${data.page} / ${lastPage}`;
   $("#prev").disabled = data.page <= 1;
   $("#next").disabled = data.page >= lastPage;
+  renderSelection();
 }
+
+/* ---- selection (persists across pages and filters) ---- */
+
+const MAX_SELECTION = 5000;  // matches the API limit
+const selected = new Set();
+let pageIds = [];
+
+function renderSelection() {
+  const n = selected.size;
+  $("#selection-bar").hidden = !n;
+  $("#sel-count").textContent = `${fmtNum(n)} selected`;
+  const onPage = pageIds.filter((id) => selected.has(id)).length;
+  const pageBox = $("#sel-page");
+  pageBox.checked = pageIds.length > 0 && onPage === pageIds.length;
+  pageBox.indeterminate = onPage > 0 && onPage < pageIds.length;
+  document.querySelectorAll("#tracks-body .row-sel").forEach((box) => {
+    const on = selected.has(Number(box.dataset.id));
+    box.checked = on;
+    box.closest("tr").classList.toggle("selected", on);
+  });
+}
+
+function setSelStatus(msg) {
+  $("#sel-status").textContent = msg;
+}
+
+function selectionIds() {
+  if (selected.size > MAX_SELECTION) {
+    setSelStatus(`Select at most ${fmtNum(MAX_SELECTION)} tracks at once`);
+    return null;
+  }
+  return [...selected];
+}
+
+$("#sel-page").addEventListener("change", (e) => {
+  for (const id of pageIds) {
+    if (e.target.checked) selected.add(id); else selected.delete(id);
+  }
+  setSelStatus("");
+  renderSelection();
+});
+
+$("#btn-sel-clear").addEventListener("click", () => {
+  selected.clear();
+  setSelStatus("");
+  renderSelection();
+});
+
+$("#btn-sel-mik").addEventListener("click", async () => {
+  const ids = selectionIds();
+  if (!ids) return;
+  const btn = $("#btn-sel-mik");
+  btn.disabled = true;
+  try {
+    const res = await fetch("/api/actions/mik/selection", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    const data = await res.json();
+    setSelStatus(data.ok ? `Sent ${fmtNum(data.sent)} to ${data.app ?? "Mixed In Key"} ✓`
+      : `Mixed In Key: ${data.error ?? res.status}`);
+  } catch (err) {
+    setSelStatus(`Mixed In Key: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("#btn-sel-xml").addEventListener("click", async () => {
+  const ids = selectionIds();
+  if (!ids) return;
+  const api = desktop();
+  if (api) {
+    const result = await api.save_rekordbox_xml(null, null, ids);
+    if (result.ok) setSelStatus("rekordbox XML saved ✓");
+    else if (!result.cancelled) setSelStatus(`Export failed: ${result.error}`);
+    return;
+  }
+  const a = document.createElement("a");
+  a.href = `/api/export/rekordbox.xml?${new URLSearchParams({ ids: ids.join(",") })}`;
+  a.download = "cratekeeper-selection.xml";
+  a.click();
+});
 
 /* ---- track detail modal ---- */
 
@@ -502,6 +591,15 @@ document.querySelectorAll("th[data-sort]").forEach((th) => {
 });
 
 $("#tracks-body").addEventListener("click", (e) => {
+  const box = e.target.closest(".row-sel");
+  if (box) {
+    const id = Number(box.dataset.id);
+    if (box.checked) selected.add(id); else selected.delete(id);
+    setSelStatus("");
+    renderSelection();
+    return;
+  }
+  if (e.target.closest("td.sel")) return;  // a near-miss on the checkbox
   const row = e.target.closest("tr[data-id]");
   if (row) openDetail(row.dataset.id);
 });

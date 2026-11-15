@@ -169,3 +169,31 @@ def test_xml_strips_control_chars_and_bpm_key_sort_numerically(config, library):
     assert by("bpm") == ["95", "128", "174"]
     assert by("key") == ["1A", "2B", "10A"]
     assert client.get("/api/stats").json()["needs_attention"] == 3
+
+
+def test_selection_actions(config, library, monkeypatch):
+    from xml.etree import ElementTree as ET
+
+    from cratekeeper import actions
+
+    for name in ("a.mp3", "b.mp3", "c.mp3"):
+        make_silence_mp3(library / name)
+        tag_basic(library / name, "Artist", name)
+    tag_as_mik(library / "a.mp3")
+    client = make_client(config)
+    Scanner(config, client.app.state.cratekeeper.db).scan()
+    ids = {r["filename"]: r["id"] for r in client.get("/api/tracks").json()["tracks"]}
+
+    sent = []
+    monkeypatch.setattr(actions, "send_to_mixed_in_key",
+                        lambda paths: sent.extend(paths) or {"ok": True, "sent": len(paths)})
+    pick = [ids["a.mp3"], ids["c.mp3"]]
+    assert client.post("/api/actions/mik/selection", json={"ids": pick}).json()["sent"] == 2
+    assert sorted(p.rsplit("/", 1)[-1] for p in sent) == ["a.mp3", "c.mp3"]  # analyzed too
+    assert client.post("/api/actions/mik/selection", json={"ids": []}).status_code == 422
+
+    res = client.get("/api/export/rekordbox.xml", params={"ids": ",".join(map(str, pick))})
+    root = ET.fromstring(res.content)
+    assert len(root.findall(".//COLLECTION/TRACK")) == 2
+    assert root.find(".//NODE[@Type='1']").get("Name") == "cratekeeper — selection"
+    assert client.get("/api/export/rekordbox.xml", params={"ids": "1;DROP"}).status_code == 422

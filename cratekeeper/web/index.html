@@ -116,9 +116,18 @@
   </section>
 
   <section class="table-wrap">
+    <div class="selection-bar" id="selection-bar" hidden>
+      <span id="sel-count"></span>
+      <button type="button" class="btn btn-small" id="btn-sel-mik">Send to Mixed In Key</button>
+      <button type="button" class="btn btn-small" id="btn-sel-xml"
+              title="rekordbox XML with these tracks as one playlist — tracks rekordbox already has are matched by location">rekordbox playlist XML</button>
+      <button type="button" class="btn btn-small" id="btn-sel-clear">Clear selection</button>
+      <span class="sel-status" id="sel-status" role="status"></span>
+    </div>
     <table id="tracks-table">
       <thead>
         <tr>
+          <th class="sel"><input type="checkbox" id="sel-page" aria-label="Select all tracks on this page"></th>
           <th data-sort="artist">Artist</th>
           <th data-sort="title">Title</th>
           <th data-sort="key" class="num">Key</th>

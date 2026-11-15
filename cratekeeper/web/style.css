@@ -165,6 +165,15 @@ tbody tr[data-id] { cursor: pointer; }
 tbody tr:hover td { background: var(--surface-2); }
 tbody tr:last-child td { border-bottom: none; }
 th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+th.sel, td.sel { width: 28px; padding-right: 0; }
+tbody tr.selected td { background: var(--surface-2); }
+
+.selection-bar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 10px 12px; border-bottom: 1px solid var(--accent);
+  font-size: 13px; color: var(--text-primary);
+}
+.sel-status { color: var(--text-secondary); }
 
 .dup-lead td {
   border-top: 2px solid var(--hairline);
