@@ -1,6 +1,6 @@
 [project]
 name = "cratekeeper"
-version = "0.2.0"
+version = "0.3.0"
 description = "24/7 music library organizer for DJs — indexes your library, finds duplicates, and tracks Mixed In Key + rekordbox status for every song"
 readme = "README.md"
 requires-python = ">=3.10"

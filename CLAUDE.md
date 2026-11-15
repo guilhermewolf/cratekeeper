@@ -29,8 +29,9 @@ cratekeeper/db.py         SQLite schema + per-thread connections (WAL mode)
 cratekeeper/scanner.py    library walk, tag extraction (mutagen), 2-tier hashing,
                      duplicate grouping (exact + normalized artist/title)
 cratekeeper/mik.py        Mixed In Key detection — pure function over mutagen tags
-cratekeeper/rekordbox.py  reads rekordbox master.db via pyrekordbox (READ-ONLY),
-                     mirrors collection, links tracks by path then name+size
+cratekeeper/rekordbox.py  reads rekordbox master.db via pyrekordbox MasterDatabase (READ-ONLY),
+                     mirrors collection, links tracks by NFC path, then name+size
+                     (rb_match: path | name_size = moved | dup_of = copy of a linked entry)
 cratekeeper/watcher.py    watchdog observer, debounced incremental updates
 cratekeeper/actions.py    outbound actions: `open -a` handoff to Mixed In Key,
                      rekordbox XML export (the only rekordbox "write" path)
@@ -38,6 +39,8 @@ cratekeeper/api.py        FastAPI app: JSON API + serves cratekeeper/web/ static
 cratekeeper/app.py        desktop mode: uvicorn in a thread + pywebview (WKWebView) window,
                      JS bridge (folder/save dialogs, Reveal in Finder), hide-on-close,
                      attaches to an already-running server instead of starting a second
+cratekeeper/updates.py    GitHub release check; desktop-only self-update (download DMG,
+                     sha256 + codesign verify, stage, swap after the process exits)
 cratekeeper/cli.py        argparse CLI: init/scan/serve/app/status/install-service
 cratekeeper/web/          vanilla HTML/CSS/JS dashboard (no build step — keep it that way)
 packaging/           PyInstaller spec + entry point + entitlements + icon source
@@ -63,6 +66,13 @@ for what the MIK signature looks like per container format.
   connection across threads.
 - Duplicate groups are fully recomputed after each scan (`compute_duplicates`),
   so group ids are not stable across scans — never persist them elsewhere.
+- "New files" = `tracks.first_seen > meta.new_cutoff`; the cutoff is baselined
+  per library root (`meta.new_cutoff_library`) and only moves forward on ack.
+  A moved file inherits `first_seen` from its vanished row (which is dropped).
+- Schema changes to existing tables go through `db.ADDED_COLUMNS`
+  (`CREATE TABLE IF NOT EXISTS` never alters a table users already have).
+- Never replace the running .app bundle: self-update stages next to it and a
+  detached helper swaps after exit (PyInstaller imports lazily from the bundle).
 - `Config.configured` is False until a config file names a library; the server
   then starts no scan/watcher and the dashboard shows the folder picker.
   Changing the folder goes through `AppState.set_library` (persists, restarts

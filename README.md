@@ -27,15 +27,32 @@ Mixed In Key status, rekordbox status, and duplicates — as a native macOS app
   - `none` — not analyzed
 - **rekordbox integration** — reads the rekordbox 6/7 encrypted `master.db`
   (read-only, via [pyrekordbox]) and matches your files against the collection by
-  absolute path, falling back to filename + file size for moved files. Also shows
-  tracks that are *imported but not yet analyzed* by rekordbox, and collection
-  entries whose file no longer exists ("orphans").
+  absolute path (Unicode-normalized, so accented filenames match), falling back to
+  filename + file size for moved files and telling those apart from duplicate
+  copies of a song rekordbox already has. Also shows tracks that are *imported but
+  not yet analyzed* by rekordbox, collection entries whose file no longer exists,
+  and a **Relocate** list: tracks rekordbox only knows at an old location, with
+  the path where the file lives now.
+- **MIK ≠ rekordbox** — flags tracks where Mixed In Key and rekordbox disagree
+  on key (compared in Camelot) or BPM (half/double tempo noted).
+- **New files since the last push** — files that appeared since you last pushed
+  (or dismissed) them get a banner: push just those to Mixed In Key plus a
+  rekordbox XML of the new ones, in one click. Moved or renamed files don't count
+  as new.
+- **Selections** — tick tracks (across pages and filters) and send them to MIK
+  or export them as a rekordbox playlist XML.
+- **Problem views** — tag errors (unreadable files) and missing files (gone from
+  disk; forget them from the index in one click — files are never touched).
 - **Duplicate detection** — two kinds:
   - *exact*: byte-identical files (two-tier hashing — cheap partial hash first,
     full SHA-256 only for collision candidates), including how much disk space
     you'd reclaim
   - *same song*: same normalized artist + title in different files (e.g. a FLAC
     and an MP3 of the same track)
+
+  Each group gets a suggested copy to keep (the one rekordbox uses, then
+  MIK-analyzed, lossless, higher bitrate); select or copy the paths of the extras
+  and delete them in Finder if you agree.
 - **Track detail view** — click any row for full metadata, the file's path, and
   the paths of every duplicate of it (with copy buttons).
 - **Send to Mixed In Key** — one click opens the not-yet-analyzed tracks in MIK,
@@ -49,8 +66,15 @@ Mixed In Key status, rekordbox status, and duplicates — as a native macOS app
   (or you) drops them, plus a periodic full rescan and rekordbox re-sync.
   `cratekeeper install-service` registers it with launchd so it starts at login and
   restarts on crash.
-- **Local-first** — everything stays on your machine. SQLite database, no cloud,
-  no telemetry. The rekordbox database is only ever opened read-only.
+- **Updates** — checks GitHub for a new release every few hours and shows a
+  banner (turn off with `check_updates = false` or the footer toggle). The
+  desktop app can install updates itself — on request, or automatically with
+  `auto_update = true`: it downloads the release's DMG, verifies its SHA-256 and
+  code signature, and swaps the app in when you quit or restart.
+- **Local-first** — your library data stays on your machine. SQLite database, no
+  cloud, no telemetry; the only outbound request is the GitHub release check
+  above (it sends nothing but a `cratekeeper/<version>` user agent). The
+  rekordbox database is only ever opened read-only.
 
 [mutagen]: https://mutagen.readthedocs.io/
 [pyrekordbox]: https://pyrekordbox.readthedocs.io/
@@ -134,6 +158,8 @@ library_path = "/Users/you/Documents/Musics"
 # rekordbox_poll_interval = 300          # check rekordbox db every 5 min
 # extensions = [".mp3", ".flac", ".wav", ".aiff", ".aif", ".m4a", ".ogg", ".opus"]
 # ignore_dirs = [".stfolder", ".stversions", ".sync"]
+# check_updates = true                   # look for new GitHub releases
+# auto_update = false                    # desktop app: install them automatically
 ```
 
 The defaults for `ignore_dirs` skip Syncthing's internal folders.
@@ -147,14 +173,19 @@ The dashboard is a thin client over a JSON API (interactive docs at `/docs`):
 | `GET /api/health` | identity + version (used by the app to detect a running server) |
 | `GET /api/config` / `PUT /api/config` | read / change the library folder (`{"library_path": "..."}`) |
 | `GET /api/stats` | library totals, MIK/rekordbox/duplicate breakdowns, scan progress |
-| `GET /api/tracks` | paginated track list; filters: `search`, `mik`, `rekordbox`, `dupes`, `errors`, `sort`, `order` |
+| `GET /api/tracks` | paginated track list; filters: `search`, `mik`, `rekordbox` (`in`/`out`/`unanalyzed`/`relocate`), `dupes`, `issue` (`errors`/`missing`), `added=new`, `mismatch` (`key`/`bpm`), `sort`, `order` |
 | `GET /api/tracks/{id}` | full detail for one track |
-| `GET /api/duplicates?kind=exact\|meta` | duplicate groups |
-| `GET /api/rekordbox/orphans` | rekordbox entries whose file is gone |
-| `POST /api/scan` | trigger a rescan |
+| `GET /api/duplicates?kind=exact\|meta` | duplicate groups, best copy first (`keep`) |
+| `GET /api/duplicates/extras?kind=…` | ids + paths of every copy except each group's keeper |
+| `GET /api/rekordbox/orphans` | rekordbox entries with no matching file in the library |
+| `GET /api/new` / `POST /api/new/ack` | files first seen since the last push / mark them seen (`{"until": ts}`) |
+| `POST /api/missing/forget` | drop index rows of files gone from disk (files untouched) |
+| `POST /api/scan` | full rescan + rekordbox re-sync and rematch |
 | `POST /api/rekordbox/sync` | force a rekordbox re-sync |
-| `POST /api/actions/mik?limit=N` | open unanalyzed tracks in Mixed In Key |
-| `GET /api/export/rekordbox.xml` | rekordbox XML of tracks missing from the collection |
+| `POST /api/actions/mik?limit=N[&since=&until=]` | open unanalyzed (optionally only new) tracks in Mixed In Key |
+| `POST /api/actions/mik/selection` | open `{"ids": [...]}` in Mixed In Key |
+| `GET /api/export/rekordbox.xml[?since=&until=\|?ids=1,2]` | rekordbox XML: tracks missing from the collection, only new ones, or a selection as a playlist |
+| `GET /api/update`, `POST /api/update/check\|install\|restart`, `PUT /api/update/settings` | release check and desktop self-update |
 
 ## How the checks work
 
@@ -194,7 +225,7 @@ Apple Silicon runner on every push, and attaches both DMGs to a GitHub release
 when you push a `v*` tag:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 To ship notarized builds, add repository secrets `MACOS_CERTIFICATE_P12`
